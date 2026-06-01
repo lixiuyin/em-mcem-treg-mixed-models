@@ -1,0 +1,14 @@
+Two-level linear model: hand-coded EM/MCEM vs lme4 comparison (seed=2025, J=20)
+
+Element-wise comparison on a single dataset:
+  EM(ML)  vs lme4(ML)  max|gamma|=9.97e-10 max|D|=2.16e-06 |sigma^2|=2.70e-09 |logLik|=1.82e-12
+  EM(REML) vs lme4(REML) max|gamma|=1.98e-09 max|D|=3.68e-06 |sigma^2|=2.54e-08 |logLik|=4.09e-12
+
+200 simulations aggregated (true D diagonal=(5,6,7) sigma^2=3):
+  hand-coded EM(ML)      D diagonal=(4.076,4.950,5.718) sigma^2=2.9863 MSE_total=8.6060
+  hand-coded EM(REML)    D diagonal=(5.104,6.197,7.158) sigma^2=2.9863 MSE_total=9.0699
+  lme4(ML)               D diagonal=(4.076,4.950,5.718) sigma^2=2.9863 MSE_total=8.6060
+  lme4(REML)             D diagonal=(5.104,6.197,7.158) sigma^2=2.9863 MSE_total=9.0699
+
+EM(ML) vs lme4(ML)  avg max-diff=3.03e-06
+EM(REML) vs lme4(REML) avg max-diff=5.50e-06

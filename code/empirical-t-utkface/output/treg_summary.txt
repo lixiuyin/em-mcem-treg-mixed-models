@@ -1,0 +1,12 @@
+UTKFace age ~ deep embeddings: Student-t regression empirical study
+n=8000 predictors=31 nu*=6
+OLS R^2=0.542 sigma=13.539 loglik=-32180.9
+t(nu*) loglik=-32029.9 (improvement 151.0)
+[Validation] EM vs optim max coef diff=0.00019
+      term     OLS    EM_t MCEM_M20 MCEM_M200   optim
+ Intercept 33.2761 32.4098  32.4257   32.4017 32.4100
+       PC1  2.3826  2.4435   2.4675    2.4452  2.4435
+       PC2 10.6484 10.6870  10.6582   10.6848 10.6870
+       PC3  4.2717  4.1700   4.1809    4.1730  4.1700
+       PC4  0.9502  0.8130   0.8268    0.8083  0.8130
+       PC5  3.1598  2.9528   2.9356    2.9494  2.9528

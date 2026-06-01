@@ -1,0 +1,1266 @@
+% !TeX program = xelatex
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{framed}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+
+% --- 标准化交叉引用：图/表按节自动编号（图 2.1、表 3-1 ……），正文用 \ref/\eqref ---
+\captionsetup{font=small,labelsep=quad}
+\numberwithin{figure}{section}
+\numberwithin{table}{section}
+\renewcommand{\thetable}{\thesection-\arabic{table}}
+
+% 公式采用手工 \tag 编号；amsmath 的 \tag 不步进 equation 计数器，导致 hyperref
+% 为每个公式生成同名锚点（equation.1）。下面让每次 \tag 先步进 equation 计数器，
+% 从而获得唯一锚点，消除 “Object @equation.1 already defined” 重名警告（不改变可见编号）。
+\makeatletter
+\AtBeginDocument{%
+  \let\ltx@orig@tag\tag
+  \renewcommand{\tag}[1]{\refstepcounter{equation}\ltx@orig@tag{#1}}%
+}
+\makeatother
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\linespread{1.15}
+
+% keep running headers verbatim (do not uppercase the statistical "t")
+\renewcommand{\sectionmark}[1]{\markright{\thesection\quad #1}}
+
+% robust \includegraphics for filenames containing underscores
+\newcommand{\figimg}[2]{\includegraphics[width=#1]{\detokenize{#2}}}
+
+\title{\bfseries EM 与 MCEM 算法：原理及其在回归模型参数估计中的应用}
+\author{Li Xiuyin\\[2pt]\normalsize 统计学}
+\date{2025}
+
+% Allow TeX extra stretch as a last resort to avoid minor overfull \hbox warnings.
+\setlength{\emergencystretch}{3em}
+
+\begin{document}
+\maketitle
+
+
+\begin{framed}
+本文档系统整理 \textbf{EM（Expectation–Maximization）算法} 与 \textbf{MCEM（Monte Carlo EM）算法} 的基本原理、收敛性，及其在 \textbf{Student's t 回归模型} 与 \textbf{多层线性模型（Multilevel Linear Model）} 参数估计中的迭代推导与数值验证。
+
+内容整理自本科毕业论文《EM 算法、MCEM 算法的原理及其在回归模型参数估计中的应用》（Li Xiuyin， 统计学，2025）。
+
+文中公式以 LaTeX 数学环境重排，插图均从本仓库 \texttt{code/} 目录下的对应输出文件读取。
+
+\end{framed}
+
+EM（Expectation-Maximization）算法是一种重要的参数估计方法，广泛适用于含潜在变量的统计模型。由于计算过程简洁、理论基础扎实，EM 算法在统计建模、机器学习等领域得到了广泛应用。然而，传统 EM 算法在执行期望步骤（E 步）时通常依赖条件期望的解析形式和积分运算；当模型结构复杂或维度过高时，封闭解往往难以获得，导致算法实施受限、实用性大打折扣。为克服这一局限，MCEM（Monte Carlo EM）算法应运而生：该算法通过蒙特卡洛采样，对 E 步中的条件期望进行数值近似，有效拓展了 EM 算法的适用范围和实际可行性。
+
+本文系统介绍了 EM 与 MCEM 算法的基本原理，并将其分别应用于 Student's t 回归模型与多层线性模型的参数估计中，推导了各自的迭代公式，并给出了完整的估计流程。在 t 回归模型部分，重点分析了模拟数据中误差项的自由度与 EM 算法所设自由度之间的匹配关系，以及在自由度匹配条件下自由度大小对估计精度与算法收敛速度的影响：当模拟数据的自由度与算法设定一致时，误差方差的估计精度最高，而回归系数的估计精度相对稳定，不易受自由度匹配性的影响；回归系数的估计对自由度设定不敏感、在自由度匹配与否时均较稳健，说明 EM 算法对不同自由度的 t 回归模型均有良好估计性能；此外，无论自由度是否匹配，算法的收敛速度均随自由度的增加而提高。在多层线性模型部分，本文以两层模型为基础，构建了一个可推广的参数估计框架，并验证了 EM 算法在迭代过程中保持似然函数单调不减的性质。
+
+针对上述两类模型，本文还分别设计了两种参数随机初始化策略，并结合 EM 算法进行了参数估计与理论分析。若 Q 函数在所有参数值上具有单峰性质（即存在唯一极大值），则通过极大化 Q 函数所得的估计值即为唯一的最大似然估计，从而说明 EM 与 MCEM 算法在此类问题中可获得全局最优解。进一步地，本文比较了 EM 算法与不同采样次数下的 MCEM 算法在两类模型中的参数估计性能：尽管 MCEM 算法引入了采样误差，但当采样次数足够大时，其估计精度可与 EM 算法相当，且在处理复杂、难以解析的模型中更具优势。综上所述，本文系统梳理了 EM 与 MCEM 算法的理论框架与实现流程，并通过两类典型模型的模拟研究验证了其估计性能，不仅深化了对两种算法的认识，也为其在高维复杂模型中的推广应用奠定了坚实的理论基础与实践保障。
+
+\textbf{关键词：} EM 算法；MCEM 算法；学生 t 回归模型；多层线性模型；参数估计；收敛性分析
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{研究背景与意义}
+
+在统计学发展中，频率学派与贝叶斯学派的争论长期推动着方法创新。在参数估计层面，极大似然估计（Maximum Likelihood Estimation，MLE）与极大后验估计（Maximum a Posteriori，MAP）之间存在深刻联系；但在处理不完全数据或似然函数难以显式表达的问题时，传统估计方法往往难以直接应用，亟需更具适应性的计算框架。
+
+期望最大化（Expectation-Maximization，EM）算法正是在此背景下提出的关键工具。该算法由 Dempster 等于 1977 年正式提出，通过引入隐变量将不完全数据扩展为完全数据，并交替执行：
+
+\begin{itemize}
+  \item \textbf{E 步}：在观测数据与当前参数估计的基础上推断隐变量的条件分布，并计算完全数据对数似然关于该分布的条件期望（Q 函数）；
+  \item \textbf{M 步}：对该期望进行最大化以更新参数估计、提升对数似然值。
+\end{itemize}
+
+EM 算法在单调性、收敛性与计算效率方面持续取得理论进展，并衍生出多种扩展形式：广义 EM（GEM）、期望条件最大化（ECM）、期望条件最大化—择一（ECME）、参数扩展 EM（PX-EM）以及蒙特卡洛 EM（Monte Carlo EM，MCEM）等，被广泛应用于隐马尔可夫模型、线性混合模型、因子分析及大规模数据建模等领域。
+
+经典 EM 算法的主要局限在于 \textbf{E 步的计算瓶颈}：当隐变量的条件（后验）分布无法解析表达时，条件期望的计算异常困难，且常涉及对完全数据对数似然的积分运算，开销巨大；此外还存在初始值敏感、易陷入局部最优、收敛缓慢等问题。
+
+为克服 E 步中条件期望难以解析计算的难题，\textbf{MCEM 算法}应运而生。该方法不依赖目标函数的可导性或封闭形式，通过从隐变量的条件（后验）分布中进行蒙特卡洛采样，以样本近似条件分布这一总体，从而有效规避显式积分的计算障碍，在层次贝叶斯模型、非线性混合模型等结构复杂的场景中展现出卓越的灵活性与通用性。
+
+本文聚焦 EM 与 MCEM 在两类线性回归模型中的应用，其建模动机为：
+
+\begin{itemize}
+  \item \textbf{Student's t 回归}：在小样本、分布未知或存在异常值、呈“重尾”特征的情形下，正态假设下的最小二乘估计易产生偏差；引入具有“厚尾”特征的 t 分布作为误差项可有效提升模型鲁棒性。
+  \item \textbf{线性混合效应模型（LMM）／多层线性模型（MLM）}：通过对观测值协方差阵设立更灵活的结构，突破传统线性模型独立同方差的限制，同时刻画组内相关性与组间差异；但当协方差结构复杂或层级过多时，参数估计面临较大挑战。
+\end{itemize}
+
+本文围绕 EM 及其改进形式 MCEM 在 t 回归模型与多层线性回归模型中的应用方法与性能表现展开研究，重点探讨两种算法的理论基础与迭代机制，并通过模拟实验考察自由度匹配性、初始值敏感性、Monte Carlo 采样量等因素对估计精度与收敛速度的影响。
+
+\section{EM 算法与 MCEM 算法}
+
+一般地，设 $Y$ 表示观测数据，即可以直接测量的变量或值；$Z$ 表示隐变量或缺失数据，即不可直接观测的变量或未被收集的观测值。$Y$ 和 $Z$ 的组合称为完全数据。与之相对，如果数据中存在隐变量或缺失数据，则称该数据为不完全数据。
+
+在利用不完全数据进行分析和推断时，必须采用适当的方法对数据进行处理，其中一种常见的方法是 EM 算法。EM 算法是一种用于含有隐变量的概率模型的参数估计方法，通过迭代过程实现极大似然估计（或极大后验估计），从而对缺失数据或隐变量进行有效推断和估计。MCEM 算法是一种广泛使用的改进 EM 算法，它在 E 步中通过 Monte Carlo 模拟来近似计算 Q 函数，从而提高 EM 算法的效率和适应性。
+
+本章将简要介绍 EM 算法和 MCEM 算法的基本原理和迭代步骤，并针对 EM 算法进行简要的收敛性分析，针对 MCEM 算法简要介绍 Monte Carlo 样本量选取策略。
+
+\subsection{EM 算法}
+
+\subsubsection{基本原理}
+
+给定观测数据 $Y$，设待估参数为 $\theta$，则在已知参数 $\theta$ 取值的情形下 $Y$ 的概率分布为 $p(Y\mid\theta)$。转换视角将样本视为已知，则 $\theta$ 的似然函数为 $L(\theta\mid Y)$，则对数似然函数为 $\ln L(\theta\mid Y) = \ln p(Y\mid\theta)$，其衡量了在给定不完全数据 $Y$ 的情况下模型参数 $\theta$ 的可能性（或似然）。
+
+假设 $Y$ 和 $Z$ 的联合概率分布（即完全数据的概率分布）为 $p(Y,Z\mid\theta)$，则对数似然函数为 $\ln L(\theta\mid Y,Z) = \ln p(Y,Z\mid\theta)$，由于
+
+\begin{equation}
+p(Y\mid\theta) = \frac{p(Y,Z\mid\theta)}{p(Z\mid\theta,Y)} \tag{2-1}
+\end{equation}
+
+故有：
+
+\begin{equation}
+\ln L(\theta\mid Y) = \ln L(\theta\mid Y,Z) - \ln p(Z\mid\theta,Y) \tag{2-2}\label{eq:2-2}
+\end{equation}
+
+但由于隐变量 $Z$ 无法直接观测，求取式~\eqref{eq:2-2} 中各项在给定观测数据 $Y$ 和当前参数 $\hat{\theta}_k$ 下，对未观测数据 $Z$ 的条件期望：
+
+\begin{equation}
+\ln L(\theta\mid Y) = \mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln L(\theta\mid Y,Z)\big] - \mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln p(Z\mid\theta,Y)\big] \tag{2-3}\label{eq:2-3}
+\end{equation}
+
+由 Gibbs 不等式，$\mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln p(Z\mid\theta,Y)\big]$ 作为 $\theta$ 的函数在 $\theta=\hat{\theta}_k$ 处取得最大值，故由 $\hat{\theta}_k$ 移动到使 $Q$ 增大的 $\theta$ 时该项不会增大。因此，在极大似然估计的框架下，只需极大化式~\eqref{eq:2-3} 中的 $Q(\theta\mid\hat{\theta}_k)=\mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln L(\theta\mid Y,Z)\big]$，即可保证 $\ln L(\theta\mid Y)$ 单调不减，从而迭代提升观测数据的似然 \textsuperscript{\cite{ref35}}。令
+
+\begin{equation}
+Q(\theta\mid\hat{\theta}_k) = \mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln L(\theta\mid Y,Z)\big] = \int \big\{ p(Z\mid\hat{\theta}_k,Y)\cdot\ln p(Y,Z\mid\theta) \big\}\, \mathrm{d}Z \tag{2-4}
+\end{equation}
+
+则迭代序列 $\{\hat{\theta}_k\}$ 可由 $Q(\hat{\theta}_k\mid\hat{\theta}_{k-1}) = \max Q(\theta\mid\hat{\theta}_{k-1})$ 得到，其中 $k = 1,2,3,\ldots$。
+
+综上，EM 算法通过迭代求 $\ln L(\theta\mid Y) = \ln p(Y\mid\theta)$ 的极大似然估计，其迭代过程如下：
+
+\begin{framed}
+\textbf{Algorithm 1　EM 算法}
+
+\textbf{输入：} 观测变量数据 $Y$，隐变量数据 $Z$，分布 $p(Y,Z\mid\theta)$，分布 $p(Z\mid\theta,Y)$
+
+\textbf{输出：} 模型参数 $\hat{\theta}$
+
+初始化模型参数 $\hat{\theta}_0$
+
+\textbf{while} 未满足停止条件 \textbf{do}
+
+\hspace*{1.5em}\textbf{E 步：} 记 $\hat{\theta}_k$ 为第 $k$ 次迭代所得的参数估计值，则在第 $k+1$ 次迭代的 E 步中，计算 \\
+$Q(\theta\mid\hat{\theta}_k) = \mathbb{E}_{Z\mid\hat{\theta}_k,Y}\big[\ln p(Y,Z\mid\theta)\big] = \int \big\{ p(Z\mid\hat{\theta}_k,Y)\cdot\ln p(Y,Z\mid\theta) \big\}\, \mathrm{d}Z$
+
+\hspace*{1.5em}\textbf{M 步：} 求使得 $Q(\theta\mid\hat{\theta}_k)$ 极大化的 $\theta$，作为第 $k+1$ 次迭代的参数估计 $\hat{\theta}_{k+1}$：$\hat{\theta}_{k+1} = \arg\max_{\theta} Q(\theta\mid\hat{\theta}_k)$
+
+\textbf{停止条件：} 当 $\big\|\hat{\theta}_{k+1} - \hat{\theta}_k\big\|$ 或 $\big| Q(\hat{\theta}_{k+1}\mid\hat{\theta}_k) - Q(\hat{\theta}_k\mid\hat{\theta}_{k-1}) \big|$ 小于给定阈值时停止迭代
+
+返回 $\hat{\theta}_{k+1}$ 作为最终估计 $\hat{\theta}$
+
+\end{framed}
+
+\subsubsection{EM 算法的收敛性分析}
+
+Wu\textsuperscript{\cite{ref6}} 证明了 EM 算法的收敛性，即其在迭代过程中 $L(\hat{\theta}_k\mid Y)$ 单调不减，并且：
+
+\begin{itemize}
+  \item 如果 $p(Y\mid\theta)$ 有上界，则 $L(\hat{\theta}_k\mid Y) = p(Y\mid\hat{\theta}_k)$ 收敛于某一值 $L^*$；
+  \item 当函数 $Q(\theta\mid\hat{\theta}_k)$ 与 $L(\hat{\theta}_k\mid Y)$ 满足一定条件，由 EM 算法得到的参数估计序列 $\{\hat{\theta}_k\}$ 的收敛值 $\theta^*$ 是 $L(\hat{\theta}_k\mid Y)$ 的稳定点（不保证为全局极大值点，但在一般条件下为局部极大值点或鞍点）。
+\end{itemize}
+
+另一方面，考察 $L(\theta\mid Y)$ 的下界：
+
+\begin{equation}
+\ln L(\theta\mid Y) = \ln p(Y\mid\theta) = \ln\!\left( \int p(Y,Z\mid\theta)\, \mathrm{d}Z \right) = \ln\!\left( \int p(Y\mid Z,\theta)\, p(Z\mid\theta)\, \mathrm{d}Z \right) \tag{2-5}
+\end{equation}
+
+由 Jensen 不等式可得：
+
+\begin{equation}
+\begin{aligned}
+\ln L(\theta\mid Y) - \ln L(\hat{\theta}_k\mid Y) &= \ln\!\left( \int p(Y,Z\mid\theta)\, \mathrm{d}Z \right) - \ln p(Y\mid\hat{\theta}_k) \\
+&= \ln\!\left( \int p(Z\mid Y,\hat{\theta}_k)\, \frac{p(Y,Z\mid\theta)}{p(Z\mid Y,\hat{\theta}_k)}\, \mathrm{d}Z \right) - \ln p(Y\mid\hat{\theta}_k) \\
+&\geq \int p(Z\mid Y,\hat{\theta}_k)\, \ln\!\left( \frac{p(Y,Z\mid\theta)}{p(Z\mid Y,\hat{\theta}_k)} \right) \mathrm{d}Z - \ln p(Y\mid\hat{\theta}_k) \\
+&= \int p(Z\mid Y,\hat{\theta}_k)\, \ln\!\left( \frac{p(Y,Z\mid\theta)}{p(Z\mid Y,\hat{\theta}_k)\, p(Y\mid\hat{\theta}_k)} \right) \mathrm{d}Z
+\end{aligned} \tag{2-6}
+\end{equation}
+
+令
+
+\begin{equation}
+B(\theta\mid\hat{\theta}_k) \triangleq \ln L(\hat{\theta}_k\mid Y) + \int p(Z\mid Y,\hat{\theta}_k)\, \ln\!\left( \frac{p(Y,Z\mid\theta)}{p(Z\mid Y,\hat{\theta}_k)\, p(Y\mid\hat{\theta}_k)} \right) \mathrm{d}Z \tag{2-7}
+\end{equation}
+
+则
+
+\begin{equation}
+\ln L(\theta\mid Y) \geq B(\theta\mid\hat{\theta}_k) \tag{2-8}
+\end{equation}
+
+即 $B(\theta\mid\hat{\theta}_k)$ 是 $\ln L(\theta\mid Y)$ 的一个下界，且 $B(\hat{\theta}_k\mid\hat{\theta}_k) = \ln L(\hat{\theta}_k\mid Y)$，因此任何可以使 $B(\theta\mid\hat{\theta}_k)$ 增大的 $\theta$ 都可以使 $\ln L(\theta\mid Y)$ 增大，而目标正是使 $\ln L(\theta\mid Y)$ 取得最大值。在此，选择 $\hat{\theta}_{k+1}$ 使得 $B(\theta\mid\hat{\theta}_k)$ 尽可能大：
+
+\begin{equation}
+\begin{aligned}
+\hat{\theta}_{k+1} &= \arg\max_{\theta} B(\theta\mid\hat{\theta}_k) \\
+&= \arg\max_{\theta} \left[ \ln L(\hat{\theta}_k\mid Y) + \int p(Z\mid Y,\hat{\theta}_k)\, \ln\!\left( \frac{p(Y\mid Z,\theta)\, p(Z\mid\theta)}{p(Z\mid Y,\hat{\theta}_k)\, p(Y\mid\hat{\theta}_k)} \right) \mathrm{d}Z \right] \\
+&= \arg\max_{\theta} \left[ \int p(Z\mid Y,\hat{\theta}_k)\, \ln\big( p(Y\mid Z,\theta)\, p(Z\mid\theta) \big)\, \mathrm{d}Z \right] \\
+&= \arg\max_{\theta} \left[ \int p(Z\mid Y,\hat{\theta}_k)\, \ln p(Y,Z\mid\theta)\, \mathrm{d}Z \right] \\
+&= \arg\max_{\theta} Q(\theta\mid\hat{\theta}_k)
+\end{aligned} \tag{2-9}
+\end{equation}
+
+上式从另一个角度给出了 EM 算法的迭代公式，即 EM 算法也可被视作一种通过不断求解 $B(\theta\mid\hat{\theta}_k)$ 的极大化来逼近求解 $\ln L(\theta\mid Y)$ 极大化的算法。\textsuperscript{\cite{ref35}}
+
+图~\ref{fig:em-concept} 给出了 EM 算法的直观解释，其中上方的曲线是 $\ln L(\theta\mid Y)$，下方为 $B(\theta\mid\hat{\theta}_k)$，后者为前者的下界。
+
+\begin{figure}[H]
+\centering
+\figimg{0.62\textwidth}{code/general/figures/em_concept.png}
+\caption{EM 算法的解释}
+\label{fig:em-concept}
+\end{figure}
+
+当 $\theta=\hat{\theta}_k$ 时，$B(\hat{\theta}_k\mid\hat{\theta}_k)=\ln L(\hat{\theta}_k\mid Y)$。EM 算法随后寻找下一个点 $\hat{\theta}_{k+1}$，以使得 $B(\theta\mid\hat{\theta}_k)$ 极大化，进而也使得 $Q(\theta\mid\hat{\theta}_k)$ 极大化。而由于 $\ln L(\theta\mid Y)\ge B(\theta\mid\hat{\theta}_k)$，故函数 $B(\theta\mid\hat{\theta}_k)$ 的增加保证了 $\ln L(\theta\mid Y)$ 在每次迭代中也是增加的。当 EM 算法找到下一个点 $\hat{\theta}_{k+1}$ 后，令 $\theta=\hat{\theta}_{k+1}$，随后 EM 算法需在点 $\hat{\theta}_{k+1}$ 重新计算 Q 函数的值，以进行下一次迭代。
+
+根据图~\ref{fig:em-concept} 可推断：EM 算法无法保证找到 $\ln L(\theta\mid Y)$ 的全局最优值。
+
+\subsubsection{EM 算法的总结}
+
+EM 算法的似然函数迭代序列 $\{\ln L(\hat{\theta}_k\mid Y)\}$ 是收敛的，但是这并不等价于 $\{\hat{\theta}_k\}$ 的收敛。定理只保证了参数估计序列 $\{\hat{\theta}_k\}$ 收敛到对数似然函数序列的稳定点，而不能保证收敛到极大值点。此外，对于不同的初始值，EM 算法的参数估计序列 $\{\hat{\theta}_k\}$ 的收敛点可能是不同的。为此，可以采用以下方法进行改进：
+
+\begin{itemize}
+  \item 取跨度很大的初值点进行迭代，观察从不同初值点出发参数收敛到的点是否一致；
+  \item 采用聚类方法，将聚类结果和初值点的选择相联系，以确定初值点；
+  \item 结合全局搜索算法对 EM 算法进行优化，如模拟退火算法等；
+  \item 算法收敛速度慢，尤其是缺失数据越多收敛速度越慢，需要对算法进行改进以实现加速。
+\end{itemize}
+
+此外，EM 算法高度依赖 Q 函数，其求解公式为：
+
+\begin{equation}
+Q(\theta\mid\hat{\theta}_k)=\mathbb{E}_{Z\mid Y,\hat{\theta}_k}\left[\ln p(Z,Y\mid\theta)\right]=
+\begin{cases}
+\sum\limits_{Z} p(Z\mid Y,\hat{\theta}_k)\,\ln p(Z,Y\mid\theta), & Z\ \text{离散}, \\[2mm]
+\displaystyle\int p(Z\mid Y,\hat{\theta}_k)\,\ln p(Z,Y\mid\theta)\,\mathrm{d}Z, & Z\ \text{连续}.
+\end{cases}
+\tag{2-10}\label{eq:2-10}
+\end{equation}
+
+式~\eqref{eq:2-10} 表明 EM 算法对 Q 函数的解析性要求较高。
+
+在某些情况下，通过观察隐变量 $Z$ 关于观测数据 $Y$ 和当前参数估计 $\hat{\theta}_k$ 的条件后验概率的核的形式，可以直接确定其分布，进而基于该分布的性质可更便捷地推导出 Q 函数的显式表达式。例如，本文研究 EM 算法和 MCEM 算法在 t 回归中的应用时，隐变量 $z_i$ 的条件后验概率分布为伽马分布，此时根据伽马分布的期望、方差等相关公式，Q 函数的表达式可以快速写出。
+
+\subsection{MCEM 算法}
+
+MCEM 算法是对 EM 算法的一种改进方法。该算法在 E 步中引入 Monte Carlo 采样，对 Q 函数进行近似计算，从而提升了 EM 算法在处理复杂模型时的效率和适应性。
+
+\subsubsection{MCEM 算法的基本原理}
+
+该算法的基本思想是：当给定 $\theta$ 的一个估计值 $\hat{\theta}_k$ 时，从 $Z$ 的条件概率分布 $p(Z\mid Y,\hat{\theta}_k)$ 中采取样本 $Z_1,\dots,Z_M$，随后通过这些样本来近似计算 Q 函数：
+
+\begin{equation}
+\begin{aligned}
+Q(\theta\mid\hat{\theta}_k)&=\mathbb{E}_{Z\mid Y,\hat{\theta}_k}\left[\ln p(Z,Y\mid\theta)\right] \\
+&=\int p(Z\mid Y,\hat{\theta}_k)\,\ln p(Z,Y\mid\theta)\,\mathrm{d}Z\approx\frac{1}{M}\sum_{m=1}^{M}\ln p(Z_m,Y\mid\theta)
+\end{aligned}
+\tag{2-11}
+\end{equation}
+
+其中，$Z_m$ 表示第 $m$ 个样本，$M$ 表示样本总量。
+
+M 步与传统 EM 算法的 M 步是相同的，即：
+
+\begin{equation}
+\hat{\theta}_{k+1}=\arg\max_{\theta} Q(\theta\mid\hat{\theta}_k)
+\tag{2-12}
+\end{equation}
+
+如此持续迭代，直到达到与传统 EM 算法类似的收敛停止条件。
+
+\subsubsection{MCEM 算法分析}
+
+需要注意的是，在 Monte Carlo 采样过程中，样本量 $M$ 的选取至关重要。随着 $M$ 值的增大，根据大数定律，从隐变量条件分布中采样得到的样本均值将更接近该分布的期望，从而提升估计精度。然而，每次 E 步都需抽取并处理 $M$ 个隐变量样本，过大的 $M$ 将显著增加单次迭代的计算开销，降低算法效率；反之，若 $M$ 值过小，则可能导致估计精度不足，甚至造成算法估计持续震荡、无法收敛。因此，$M$ 值的选取需要在估计精度和计算成本之间权衡。
+
+针对该问题，动态调整样本量 $M$ 是一种较为可行的解决方案。具体而言，可在算法迭代过程中逐步增大 $M$ 的取值，以提高后期估计的精度并加速算法收敛。Wei\textsuperscript{\cite{ref37}} 提出，可通过持续监测算法的收敛进度来动态调整 $M$。这一思路可借助绘制参数估计（$\hat{\theta}_k$）或目标函数（如观测数据对数似然，或 Q 函数的蒙特卡洛估计值）关于迭代次数 $k$ 的变化曲线来实现：当参数估计的震荡幅度明显减小，或对数似然函数的增长速率显著放缓时，适度增大 $M$ 能以较小的计算成本同时提升估计精度和收敛效率。
+
+\section{EM 与 MCEM 算法在 t 回归模型中的应用}
+
+正态线性回归模型是回归分析中最经典且应用最广泛的模型之一。这主要得益于其回归系数在经典假设（如误差项同方差、零均值、相互独立）下具备诸多优良性质，例如相合性、无偏性以及在所有线性无偏估计中具有最小方差。在误差项进一步服从正态分布的条件下，最小二乘估计（Ordinary Least Squares，OLS）也服从正态分布，从而便于进行统计推断。然而，在某些实际应用中，受限于样本量不足或数据质量问题，难以验证正态性假设。此外，正态回归模型对异常值高度敏感，特别是在误差分布具有重尾特征时，使用正态模型往往会导致参数估计偏差显著，影响模型的解释力与预测能力。
+
+为增强模型对异常值和重尾数据的鲁棒性，学生 t 回归模型（简称 t 回归模型）作为正态线性模型的一种扩展被提出。该模型假设误差项服从学生 t 分布，而非正态分布。由于学生 t 分布具有更厚的尾部，其在面对含有极端值或离群点的数据时能提供更稳健的估计，从而有效缓解正态模型对异常值的敏感性，提升模型稳定性与适用性。\textsuperscript{\cite{ref38}}
+
+本章将分别采用 EM 算法和 MCEM 算法对贝叶斯场合下 t 回归模型中的参数进行估计，并通过模拟实验比较两种算法在估计精度、收敛速度和稳定性等方面的性能差异和 EM 算法对参数初值的敏感性。
+
+\subsection{EM 算法在 t 回归模型中的应用}
+
+\subsubsection{迭代过程}
+
+设 t 回归模型为：
+
+\begin{equation}
+y_i = \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta} + \varepsilon_i, \quad \varepsilon_i \overset{\text{i.i.d.}}{\sim} t(\nu, 0, \sigma^2), \quad i = 1, 2, \ldots, n \tag{3-1}
+\end{equation}
+
+其中，$\mathbf{x}_i = (1, x_{i1}, x_{i2}, \ldots, x_{ip})^{\mathrm{T}}$，$\boldsymbol{\beta}$ 为 $p+1$ 维回归系数，$t(\nu, 0, \sigma^2)$ 表示自由度为 $\nu$、位置参数为 0、尺度参数为 $\sigma$ 的一维 t 分布。令 $\mathbf{y} = (y_1, y_2, \ldots, y_n)^{\mathrm{T}}$，由 $y_i \sim t(\nu, \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}, \sigma^2)$ 得 $\mathbf{y}$ 的联合概率密度为：
+
+\begin{equation}
+f(\mathbf{y} \mid \boldsymbol{\beta}, \sigma^2) = \prod_{i=1}^{n} f(y_i \mid \boldsymbol{\beta}, \sigma^2) = \prod_{i=1}^{n} \frac{\Gamma\!\left(\dfrac{\nu+1}{2}\right)}{\Gamma\!\left(\dfrac{\nu}{2}\right)\sqrt{\nu\pi}\,\sigma} \left[1 + \frac{1}{\nu}\left(\frac{y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}}{\sigma}\right)^2\right]^{-\frac{\nu+1}{2}} \tag{3-2}
+\end{equation}
+
+基于 t 分布的定义和生成机制：若 $Y \sim t(\nu, \mu, \sigma^2)$，则存在 $Z \sim \Gamma\!\left(\dfrac{\nu}{2}, \dfrac{\nu}{2}\right)$，使得条件分布 $Y \mid Z = z \sim \mathcal{N}\!\left(\mu, \dfrac{\sigma^2}{z}\right)$，其中 $\Gamma\!\left(\dfrac{\nu}{2}, \dfrac{\nu}{2}\right)$ 表示形状参数与速率参数（rate）均为 $\dfrac{\nu}{2}$ 的伽马分布（其均值为 $1$，从而 $\varepsilon_i$ 的边际分布恰为尺度 $\sigma^2$ 的 $t_\nu$ 分布），$\mathcal{N}\!\left(\mu, \dfrac{\sigma^2}{z}\right)$ 表示均值为 $\mu$、方差为 $\dfrac{\sigma^2}{z}$ 的正态分布。据此引入缺失数据 $\mathbf{z} = (z_1, z_2, \ldots, z_n)^{\mathrm{T}}$，满足：
+
+\begin{equation}
+z_i \sim \Gamma\!\left(\frac{\nu}{2}, \frac{\nu}{2}\right), \quad i = 1, 2, \ldots, n \tag{3-3}
+\end{equation}
+
+使得
+
+\begin{equation}
+y_i \mid z_i \sim \mathcal{N}\!\left(\mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}, \frac{\sigma^2}{z_i}\right) \tag{3-4}
+\end{equation}
+
+则完全数据的似然函数为：
+
+\begin{equation}
+\begin{aligned}
+f(y_i, z_i \mid \boldsymbol{\beta}, \sigma^2) &= f(y_i \mid z_i, \boldsymbol{\beta}, \sigma^2)\, f(z_i) \\
+&= \frac{\sqrt{z_i}}{\sqrt{2\pi}\,\sigma} \exp\!\left(-\frac{z_i}{2\sigma^2}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right) \cdot \frac{\left(\dfrac{\nu}{2}\right)^{\frac{\nu}{2}}}{\Gamma\!\left(\dfrac{\nu}{2}\right)} z_i^{\frac{\nu}{2}-1} \exp\!\left(-\frac{\nu}{2} z_i\right)
+\end{aligned} \tag{3-5}
+\end{equation}
+
+故完整数据的似然函数为：
+
+\begin{equation}
+f(\mathbf{y}, \mathbf{z} \mid \boldsymbol{\beta}, \sigma^2) = \prod_{i=1}^{n} f(y_i, z_i \mid \boldsymbol{\beta}, \sigma^2) \propto \left(\frac{1}{\sigma^2}\right)^{\frac{n}{2}} \exp\!\left\{-\frac{1}{2\sigma^2}\sum_{i=1}^{n} z_i\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right\} \tag{3-6}
+\end{equation}
+
+取 $\boldsymbol{\beta}, \sigma^2$ 的联合先验分布为：
+
+\begin{equation}
+\pi(\boldsymbol{\beta}, \sigma^2) \propto \frac{1}{\sigma^2} \tag{3-7}
+\end{equation}
+
+则有联合后验概率密度：
+
+\begin{equation}
+\pi(\boldsymbol{\beta}, \sigma^2 \mid \mathbf{y}, \mathbf{z}) \propto \left(\frac{1}{\sigma^2}\right)^{\frac{n}{2}+1} \exp\!\left\{-\frac{1}{2\sigma^2}\sum_{i=1}^{n} z_i\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right\} \tag{3-8}
+\end{equation}
+
+即
+
+\begin{equation}
+\ln \pi(\boldsymbol{\beta}, \sigma^2 \mid \mathbf{y}, \mathbf{z}) \propto -\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\sum_{i=1}^{n} z_i\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2 \tag{3-9}
+\end{equation}
+
+又由于完全数据 $(y_i, z_i)$ 和观测数据 $y_i$ 关于参数 $\boldsymbol{\beta}, \sigma^2$ 的条件概率分别为：
+
+\begin{equation}
+f(y_i, z_i \mid \boldsymbol{\beta}, \sigma^2) = \frac{\sqrt{z_i}}{\sqrt{2\pi}\,\sigma} \exp\!\left(-\frac{z_i}{2\sigma^2}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right) \cdot \frac{\left(\dfrac{\nu}{2}\right)^{\frac{\nu}{2}}}{\Gamma\!\left(\dfrac{\nu}{2}\right)} z_i^{\frac{\nu}{2}-1} \exp\!\left(-\frac{\nu}{2} z_i\right) \tag{3-10}
+\end{equation}
+
+\begin{equation}
+f(y_i \mid \boldsymbol{\beta}, \sigma^2) = \frac{\Gamma\!\left(\dfrac{\nu+1}{2}\right)}{\Gamma\!\left(\dfrac{\nu}{2}\right)\sqrt{\nu\pi}\,\sigma} \left[1 + \frac{1}{\nu}\left(\frac{y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}}{\sigma}\right)^2\right]^{-\frac{\nu+1}{2}} \tag{3-11}
+\end{equation}
+
+故得到隐变量 $z_i$ 关于观测数据 $y_i$ 与参数 $\boldsymbol{\beta}, \sigma^2$ 的条件概率为：
+
+\begin{equation}
+p(z_i \mid y_i, \boldsymbol{\beta}, \sigma^2) = \frac{f(y_i, z_i \mid \boldsymbol{\beta}, \sigma^2)}{f(y_i \mid \boldsymbol{\beta}, \sigma^2)} \propto z_i^{\frac{\nu+1}{2}-1} \exp\!\left\{-\left[\frac{1}{2\sigma^2}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2 + \frac{\nu}{2}\right] z_i\right\} \tag{3-12}
+\end{equation}
+
+故
+
+\begin{equation}
+z_i \mid y_i, \boldsymbol{\beta}, \sigma^2 \sim \Gamma\!\left(\frac{\nu+1}{2}, \frac{1}{2}\frac{\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2}{\sigma^2} + \frac{\nu}{2}\right) \tag{3-13}
+\end{equation}
+
+若给定观测数据 $\mathbf{y}$、第 $k$ 次迭代所得估计 $\hat{\boldsymbol{\beta}}_k$ 和 $\hat{\sigma}_k^2$，则隐变量 $z_i$ 在第 $k+1$ 次迭代中关于自身的条件期望为：
+
+\begin{equation}
+\mathbb{E}_{z_i \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2, y_i}(z_i) = \frac{\nu+1}{\dfrac{\left(y_i - \mathbf{x}_i^{\mathrm{T}} \hat{\boldsymbol{\beta}}_k\right)^2}{\hat{\sigma}_k^2} + \nu} \equiv \hat{\gamma}_i^{(k)} \tag{3-14}
+\end{equation}
+
+故在第 $k+1$ 步中，利用 EM 算法估计 t 回归模型中未知参数 $\boldsymbol{\beta}$ 和 $\sigma^2$ 的 E 步与 M 步为：
+
+\textbf{E 步}：计算 Q 函数，该函数是给定观测数据 $\mathbf{y}$、第 $k$ 步参数估计 $\hat{\boldsymbol{\beta}}_k$ 和 $\hat{\sigma}_k^2$ 下，待估参数 $\boldsymbol{\beta}$ 和 $\sigma^2$ 的联合后验对数似然函数关于隐变量 $z_i$ 的条件期望（保留含 $\boldsymbol{\beta}$ 和 $\sigma^2$ 的部分）：
+
+\begin{equation}
+\begin{aligned}
+Q(\boldsymbol{\beta}, \sigma^2 \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2) &= \mathbb{E}_{z_i \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2, y}\left[\ln \pi(\boldsymbol{\beta}, \sigma^2 \mid \mathbf{y}, \mathbf{z})\right] \\
+&\propto \mathbb{E}_{z_i \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2, y}\left\{-\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\sum_{i=1}^{n} z_i\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right\} \\
+&= -\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\left\{\sum_{i=1}^{n} \mathbb{E}_{z_i \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2, y}(z_i)\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2\right\} \\
+&= -\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\sum_{i=1}^{n} \hat{\gamma}_i^{(k)}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2
+\end{aligned} \tag{3-15}
+\end{equation}
+
+\textbf{M 步}：极大化 E 步中计算得到的 Q 函数，得到 $\boldsymbol{\beta}$ 和 $\sigma^2$ 新的估计。
+
+首先极大化 Q 函数以求 $\hat{\boldsymbol{\beta}}_{k+1}$：
+
+\begin{equation}
+\frac{\partial Q(\boldsymbol{\beta}, \sigma^2 \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2)}{\partial \boldsymbol{\beta}} \propto \frac{1}{\sigma^2}\sum_{i=1}^{n} \hat{\gamma}_i^{(k)} \mathbf{x}_i\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right) = 0 \tag{3-16}
+\end{equation}
+
+由此得到
+
+\begin{equation}
+\sum_{i=1}^{n} \hat{\gamma}_i^{(k)} \mathbf{x}_i y_i = \sum_{i=1}^{n} \hat{\gamma}_i^{(k)} \mathbf{x}_i \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta} \tag{3-17}
+\end{equation}
+
+故
+
+\begin{equation}
+\hat{\boldsymbol{\beta}}_{k+1} = \left(\sum_{i=1}^{n} \hat{\gamma}_i^{(k)} \mathbf{x}_i \mathbf{x}_i^{\mathrm{T}}\right)^{-1} \sum_{i=1}^{n} \hat{\gamma}_i^{(k)} \mathbf{x}_i y_i \tag{3-18}
+\end{equation}
+
+记矩阵 $\mathbf{X} = (\mathbf{x}_1, \mathbf{x}_2, \ldots, \mathbf{x}_n)^{\mathrm{T}}$，$\mathbf{W}_k = \mathrm{diag}\!\left(\hat{\gamma}_1^{(k)}, \hat{\gamma}_2^{(k)}, \ldots, \hat{\gamma}_n^{(k)}\right)$，则有：
+
+\begin{equation}
+\hat{\boldsymbol{\beta}}_{k+1} = \left(\mathbf{X}^{\mathrm{T}} \mathbf{W}_k \mathbf{X}\right)^{-1} \mathbf{X}^{\mathrm{T}} \mathbf{W}_k \mathbf{y} \tag{3-19}
+\end{equation}
+
+同理，极大化 Q 函数以求 $\hat{\sigma}_{k+1}^2$：
+
+\begin{equation}
+\frac{\partial Q(\boldsymbol{\beta}, \sigma^2 \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2)}{\partial (\sigma^2)} = -\frac{\left(\dfrac{n}{2}+1\right)}{\sigma^2} + \frac{1}{2(\sigma^2)^2}\sum_{i=1}^{n} \hat{\gamma}_i^{(k)}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \boldsymbol{\beta}\right)^2 = 0 \tag{3-20}
+\end{equation}
+
+由于已得到 $\hat{\boldsymbol{\beta}}_{k+1}$，故可使用 $\hat{\boldsymbol{\beta}}_{k+1}$ 作为 $\boldsymbol{\beta}$ 的估计以求解 $\hat{\sigma}_{k+1}^2$，代入得：
+
+\begin{equation}
+\hat{\sigma}_{k+1}^2 = \frac{1}{n+2}\sum_{i=1}^{n} \hat{\gamma}_i^{(k)}\left(y_i - \mathbf{x}_i^{\mathrm{T}} \hat{\boldsymbol{\beta}}_{k+1}\right)^2 \tag{3-21}
+\end{equation}
+
+即
+
+\begin{equation}
+\hat{\sigma}_{k+1}^2 = \frac{1}{n+2}\left(\mathbf{y} - \mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right)^{\mathrm{T}} \mathbf{W}_k \left(\mathbf{y} - \mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right) \tag{3-22}
+\end{equation}
+
+综合 E 步与 M 步，EM 算法用于 t 回归模型的完整迭代流程如下（误差自由度 $\nu$ 已知，$\mathbf{X}=(\mathbf{x}_1,\ldots,\mathbf{x}_n)^{\mathrm{T}}$，$\mathbf{y}=(y_1,\ldots,y_n)^{\mathrm{T}}$，收敛阈值 $\epsilon$）：
+
+\begin{enumerate}
+  \item \textbf{初始化}（$k=0$）：给定初始值 $\hat{\boldsymbol{\beta}}_{0}$、$\hat{\sigma}_{0}^{2}$。
+  \item 对 $k=0,1,2,\ldots$ 迭代执行：
+\begin{enumerate}
+    \item \textbf{E 步}：由当前估计 $\hat{\boldsymbol{\beta}}_{k}$、$\hat{\sigma}_{k}^{2}$ 计算各样本权重 $\hat{\gamma}_{i}^{(k)}=\dfrac{\nu+1}{\dfrac{\left(y_{i}-\mathbf{x}_{i}^{\mathrm{T}}\hat{\boldsymbol{\beta}}_{k}\right)^{2}}{\hat{\sigma}_{k}^{2}}+\nu}$，$i=1,2,\ldots,n$；
+    \item \textbf{M 步（更新 $\boldsymbol{\beta}$）}：令 $\mathbf{W}_{k}=\mathrm{diag}\left(\hat{\gamma}_{1}^{(k)},\hat{\gamma}_{2}^{(k)},\ldots,\hat{\gamma}_{n}^{(k)}\right)$，则 $\hat{\boldsymbol{\beta}}_{k+1}=\left(\mathbf{X}^{\mathrm{T}}\mathbf{W}_{k}\mathbf{X}\right)^{-1}\mathbf{X}^{\mathrm{T}}\mathbf{W}_{k}\mathbf{y}$；
+    \item \textbf{M 步（更新 $\sigma^{2}$）}：$\hat{\sigma}_{k+1}^{2}=\dfrac{1}{n+2}\left(\mathbf{y}-\mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right)^{\mathrm{T}}\mathbf{W}_{k}\left(\mathbf{y}-\mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right)$；
+    \item \textbf{收敛判定}：若 $\max\left(\left\|\hat{\boldsymbol{\beta}}_{k+1}-\hat{\boldsymbol{\beta}}_{k}\right\|,\left|\hat{\sigma}_{k+1}^{2}-\hat{\sigma}_{k}^{2}\right|\right)>\epsilon$，则令 $k\leftarrow k+1$ 并返回步骤 2；否则停止迭代。
+\end{enumerate}
+  \item 输出最终估计 $\hat{\boldsymbol{\beta}}=\hat{\boldsymbol{\beta}}_{k+1}$、$\hat{\sigma}^{2}=\hat{\sigma}_{k+1}^{2}$。
+\end{enumerate}
+
+\subsubsection{数值模拟与结果分析}
+
+\textbf{模拟设定。} 选取 $p=2$ 的 Student $t$ 回归模型进行实验：
+
+\begin{equation}
+y_i = \beta_0 + x_{i1}\beta_1 + x_{i2}\beta_2 + \varepsilon_i,\qquad \varepsilon_i \sim t(\nu,0,\sigma^2),\quad i=1,\dots,n \tag{3-23}\label{eq:3-23}
+\end{equation}
+
+真实回归系数取 $\boldsymbol{\beta}^{\mathsf{T}}=(2,3,5)$，误差自由度 $\nu=10$，方差参数 $\sigma^2=0.4$，样本量 $n=500$。先从 $t$ 分布生成 500 个误差项，再由一元标准正态分布生成协变量 $x_{i1}$、$x_{i2}$，依式~\eqref{eq:3-23} 构造响应 $y_i$。EM 算法基于固定初始值迭代，评价指标为各参数的 MSE：
+
+\begin{equation}
+\resizebox{\linewidth}{!}{$\displaystyle
+\mathrm{MSE}_{\hat{\beta}_i}=\left(\hat{\beta}_i-\beta_i\right)^2,\quad \mathrm{MSE}_{\hat{\boldsymbol{\beta}}}=\sum_{i=0}^{p}\left(\hat{\beta}_i-\beta_i\right)^2,\quad \mathrm{MSE}_{\hat{\sigma}^2}=\left(\hat{\sigma}^2-\sigma^2\right)^2,\quad \mathrm{MSE}_{\text{总}}=\mathrm{MSE}_{\hat{\boldsymbol{\beta}}}+\mathrm{MSE}_{\hat{\sigma}^2}
+$}
+\tag{3-24}
+\end{equation}
+
+实验从三个角度展开：单次执行 vs. 500 次独立模拟取平均；保守型 vs. 激进型随机初始化；以及误差项自由度从 5 递增至 105 的匹配/不匹配分析。
+
+\textbf{主要结论。}
+
+\begin{itemize}
+  \item EM 算法在较少的迭代步内即逼近真实参数，收敛速度快，估计精度高；500 次模拟取平均后各参数 MSE 进一步显著下降（如 $\mathrm{MSE}_{\hat{\boldsymbol{\beta}}}$ 由单次执行的 $3.92\times10^{-3}$ 降至 500 次平均的 $8.62\times10^{-7}$）。
+  \item 算法对参数初始值不敏感：保守型与激进型初始化得到的估计结果几乎一致。原因是在自由度 $\nu$ 已知时，本模型的观测数据对数后验在 $(\boldsymbol{\beta},\sigma^2)$ 上为单峰函数，故 EM 迭代无论从何初值出发都收敛到该唯一的后验众数（即最大后验 MAP 估计；因先验 $\pi\propto1/\sigma^2$，$\sigma^2$ 含 $n+2$ 分母，与纯 MLE 仅差 $n/(n+2)$ 因子）。
+  \item 当算法设定自由度与数据真实自由度（$\nu=10$）相匹配时 $\hat{\sigma}^2$ 的估计更准确，$\hat{\boldsymbol{\beta}}$ 对自由度设定相对不敏感；由于自由度扫描中每个自由度点仅基于单批模拟数据，各点的 $\mathrm{MSE}_{\hat{\sigma}^2}$ 存在随机波动（整体处于 $10^{-3}\sim10^{-5}$ 量级，见图~\ref{fig:treg-df}），不呈严格单调。
+  \item 回归系数 $\hat{\boldsymbol{\beta}}$ 的估计相对稳健，受自由度匹配性的影响明显弱于方差参数。
+  \item 收敛速度随自由度增大而提高：自由度越大，$t$ 分布越接近正态分布，参数更新更平稳；当自由度升至 105 时算法约需 6 次迭代即可收敛。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/25_t_em_single_iter.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/21_t_em_500sim_iter.png}
+\caption{EM 算法单次执行与 500 次模拟平均的参数迭代路径对比}
+\label{fig:treg-em-iter}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/26_t_em_single_mse.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/22_t_em_500sim_mse.png}
+\caption{单次和 500 次执行 EM 算法的 MSE 变化情况}
+\label{fig:treg-em-mse}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/27_t_em_normal_init_iter.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/28_t_em_bold_init_iter.png}
+\caption{不同参数初始化策略对 EM 算法性能的影响}
+\label{fig:treg-em-init}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/29_t_df_error.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/30_t_df_iter.png}
+\caption{EM 算法估计误差及迭代次数与误差项自由度的关系}
+\label{fig:treg-df}
+\end{figure}
+
+\subsection{MCEM 算法在 t 回归模型中的应用}
+
+\subsubsection{迭代过程}
+
+基于 EM 算法中 E 步与 M 步的求解过程，给出 MCEM 算法中的 E 步与 M 步：
+
+\textbf{E 步：} 已知 $z_i \mid y_i, \boldsymbol{\beta}, \sigma^2 \sim \Gamma\!\left(\dfrac{\nu+1}{2},\ \dfrac{(y_i - \mathbf{x}_i^{\mathsf{T}}\boldsymbol{\beta})^2}{2\sigma^2} + \dfrac{\nu}{2}\right)$，第 $k+1$ 次迭代时，从该分布中抽取 $M$ 个样本为 $z_i^{(k+1,1)}, \ldots, z_i^{(k+1,M)}$，令 $\bar{z}_i^{(k+1)} = \dfrac{1}{M}\sum_{m=1}^{M} z_i^{(k+1,m)}$，以此近似计算 Q 函数\textsuperscript{\cite{ref39}}：
+
+\begin{equation}
+\begin{aligned}
+Q\!\left(\boldsymbol{\beta}, \sigma^2 \mid \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2\right)
+&= \mathbb{E}_{z \mid y, \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2}\!\left[\ln \pi\!\left(\boldsymbol{\beta}, \sigma^2 \mid y, z\right)\right] \\
+&= \int \ln \pi\!\left(\boldsymbol{\beta}, \sigma^2 \mid y, z\right) p\!\left(z \mid y, \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2\right) \mathrm{d}z \\
+&\propto -\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\left\{\sum_{i=1}^{n}\left(\int z_i\, p\!\left(z_i \mid y_i, \hat{\boldsymbol{\beta}}_k, \hat{\sigma}_k^2\right)\mathrm{d}z_i\right)\left(y_i - \mathbf{x}_i^{\mathsf{T}}\boldsymbol{\beta}\right)^2\right\} \\
+&\approx -\left(\frac{n}{2}+1\right)\ln \sigma^2 - \frac{1}{2\sigma^2}\left\{\sum_{i=1}^{n}\bar{z}_i^{(k+1)}\left(y_i - \mathbf{x}_i^{\mathsf{T}}\boldsymbol{\beta}\right)^2\right\}
+\end{aligned} \tag{3-25}
+\end{equation}
+
+\textbf{M 步：} 由 Q 函数的形式与传统 EM 算法中的 Q 函数形式相似，故可直接给出 MCEM 算法的迭代公式。令 $\bar{\boldsymbol{W}}_k = \operatorname{diag}\!\left(\bar{z}_1^{(k+1)}, \ldots, \bar{z}_n^{(k+1)}\right)$，则有：
+
+\begin{equation}
+\hat{\boldsymbol{\beta}}_{k+1} = \left(\mathbf{X}^{\mathsf{T}} \bar{\boldsymbol{W}}_k \mathbf{X}\right)^{-1}\mathbf{X}^{\mathsf{T}} \bar{\boldsymbol{W}}_k \mathbf{y} \tag{3-26}
+\end{equation}
+
+\begin{equation}
+\hat{\sigma}_{k+1}^2 = \frac{1}{n+2}\left(\mathbf{y} - \mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right)^{\mathsf{T}} \bar{\boldsymbol{W}}_k \left(\mathbf{y} - \mathbf{X}\hat{\boldsymbol{\beta}}_{k+1}\right) \tag{3-27}
+\end{equation}
+
+\subsubsection{数值模拟与结果分析}
+
+\textbf{模拟设定。} 以 Student's t 回归模型为数据生成机制，对回归系数 $\boldsymbol{\beta}$ 与尺度参数 $\sigma^2$ 进行估计。MCEM 算法在 E 步对潜变量 $z_i\mid y_i,\boldsymbol{\beta}_k,\sigma_k^2$ 抽取 $M$ 个样本，令
+
+\begin{equation*}
+\bar z_i = \frac{1}{M}\sum_{m=1}^{M} z_i^{(m)},
+\end{equation*}
+
+并将其排成对角矩阵 $\bar{\boldsymbol{W}}_k=\mathrm{diag}(\bar z_1,\dots,\bar z_n)$，进而更新
+
+\begin{equation*}
+\hat{\boldsymbol{\beta}}_{k+1}=(\boldsymbol{X}^{\mathrm{T}}\bar{\boldsymbol{W}}_k\boldsymbol{X})^{-1}\boldsymbol{X}^{\mathrm{T}}\bar{\boldsymbol{W}}_k\boldsymbol{y}.
+\end{equation*}
+
+模拟对比了两类条件：(1) 单次执行时采样次数 $M=1$ 与 $M=100$ 的迭代路径（图~\ref{fig:treg-mcem-single}）；(2) 在固定初始值下，对 EM 算法与 $M=100$ 的 MCEM 算法各做 500 次独立重复模拟，每次重新生成数据，比较迭代路径、MSE 收敛情况与最终平均估计（图~\ref{fig:treg-500-compare}、表~\ref{tab:treg-500}）。
+
+\textbf{主要结论。}
+
+\begin{itemize}
+  \item 采样次数过小（$M=1$）时迭代路径随机波动明显；增大至 $M=100$ 后路径显著趋稳，通常在第 4 次迭代后即趋于稳定。
+  \item 500 次重复模拟中，EM 与 MCEM 的迭代趋势、幅度相近，各参数 MSE 均在较早阶段快速趋近于 0，估计性能良好。
+  \item 两种算法的最终平均估计与 MSE 处于相近水平，$M=100$ 的 MCEM 已能达到与 EM 相当的精度（见下表）。
+  \item 代价是计算时间：500 次模拟中 EM 耗时约 11.0 秒，MCEM（$M=100$）约 336.7 秒，约为前者的 31 倍。
+  \item MCEM 通过在 E 步引入 Monte Carlo 采样，缓解了 EM 对 Q 函数条件期望解析形式的依赖，在复杂或难解析模型中更具灵活性与适应性。
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{500 次模拟 EM 算法、MCEM 算法（100 次采样）的平均估计结果}
+\label{tab:treg-500}
+\begin{tabular}{lll}
+\toprule
+参数 & MCEM 模拟 500 次 & EM 模拟 500 次 \\
+\midrule
+$\hat\beta_0$ & 1.9975 & 2.0005 \\
+$\hat\beta_1$ & 3.0000 & 3.0008 \\
+$\hat\beta_2$ & 5.0014 & 5.0000 \\
+$\hat\sigma^2$ & 0.3957 & 0.3977 \\
+$\mathrm{MSE}_{\beta}$ & 8.392e-06 & 8.622e-07 \\
+$\mathrm{MSE}_{\sigma^2}$ & 1.889e-05 & 5.499e-06 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/31_t_mcem_M1_single_iter.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/32_t_mcem_M100_single_iter.png}
+\caption{MCEM 算法（1 次和 100 次采样）估计参数的单次迭代过程}
+\label{fig:treg-mcem-single}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/t-regression/figures/21_t_em_500sim_iter.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/22_t_em_500sim_mse.png}
+\par\smallskip
+\figimg{0.46\textwidth}{code/t-regression/figures/23_t_mcem_500sim_iter.png}\hfill\figimg{0.46\textwidth}{code/t-regression/figures/24_t_mcem_500sim_mse.png}
+\caption{500 次模拟 EM 算法、MCEM 算法（100 次采样）的迭代路径及 MSE 变化情况}
+\label{fig:treg-500-compare}
+\end{figure}
+
+\section{EM 与 MCEM 算法在多层线性模型中的应用}
+
+线性混合效应模型（Linear Mixed Model, LMM）是一种灵活的建模方法，广泛应用于各种复杂数据分析场景。LMM 结合了固定效应和随机效应，其中固定效应应用于描述因变量与自变量之间的总体关系，而随机效应则捕捉了个体之间的差异对因变量的影响。通过同时建模固定效应和随机效应，LMM 能够有效处理组内观测值的相关性（组内变异性）以及组间差异（组间变异性），从而提高模型的拟合精度和推断可靠性。
+
+多层线性模型（Hierarchical Linear Model, HLM）是线性混合效应模型的一种特殊形式，特别适用于具有层级结构的数据分析。
+
+鉴于多层线性模型可视为两层线性模型的扩展，本章将重点研究 EM 算法和 MCEM 算法在两层线性模型参数估计中的应用，将分别详细推导算法的迭代过程，并通过模拟实验对其性能进行系统的分析与比较。
+
+\subsection{EM 算法在多层线性模型中的应用}
+
+\subsubsection{迭代过程}
+
+两层线性模型可以表示为：
+
+\begin{equation}
+\begin{aligned}
+\mathbf{y}_j &= \mathbf{X}_j \boldsymbol{\beta}_j + \boldsymbol{\varepsilon}_j, \quad \boldsymbol{\varepsilon}_j \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I}_{n_j}), \quad j = 1, 2, \dots, J \\
+\boldsymbol{\beta}_j &= \mathbf{W}_j \boldsymbol{\gamma} + \boldsymbol{\mu}_j, \quad \boldsymbol{\mu}_j \sim \mathcal{N}(\mathbf{0}, \mathbf{D}), \quad j = 1, 2, \dots, J
+\end{aligned}
+\tag{4-1}\label{eq:4-1}
+\end{equation}
+
+由于
+
+\begin{equation}
+\begin{bmatrix} y_{1j} \\ y_{2j} \\ \vdots \\ y_{n_j j} \end{bmatrix}
+=
+\begin{bmatrix}
+1 & x_{11j} & \cdots & x_{1pj} \\
+1 & x_{21j} & \cdots & x_{2pj} \\
+\vdots & \vdots & \ddots & \vdots \\
+1 & x_{n_j 1j} & \cdots & x_{n_j pj}
+\end{bmatrix}
+\begin{bmatrix} \beta_{0j} \\ \beta_{1j} \\ \vdots \\ \beta_{pj} \end{bmatrix}
++
+\begin{bmatrix} \varepsilon_{1j} \\ \varepsilon_{2j} \\ \vdots \\ \varepsilon_{n_j j} \end{bmatrix}
+\tag{4-2}
+\end{equation}
+
+其中 $\mathbf{y}_j \sim \mathcal{N}(\mathbf{X}_j \boldsymbol{\beta}_j, \sigma^2 \mathbf{I}_{n_j})$，$\mathbf{X}_j \in \mathbb{R}^{n_j \times (p+1)}$（含截距列），$\boldsymbol{\beta}_j \in \mathbb{R}^{p+1}$，$\boldsymbol{\varepsilon}_j \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I}_{n_j})$。
+
+故令
+
+\begin{equation}
+\mathbf{y} = \begin{bmatrix} \mathbf{y}_1 \\ \mathbf{y}_2 \\ \vdots \\ \mathbf{y}_J \end{bmatrix}, \quad
+\mathbf{X} = \begin{bmatrix} \mathbf{X}_1 & & & \\ & \mathbf{X}_2 & & \\ & & \ddots & \\ & & & \mathbf{X}_J \end{bmatrix}, \quad
+\boldsymbol{\beta} = \begin{bmatrix} \boldsymbol{\beta}_1 \\ \boldsymbol{\beta}_2 \\ \vdots \\ \boldsymbol{\beta}_J \end{bmatrix}, \quad
+\boldsymbol{\varepsilon} = \begin{bmatrix} \boldsymbol{\varepsilon}_1 \\ \boldsymbol{\varepsilon}_2 \\ \vdots \\ \boldsymbol{\varepsilon}_J \end{bmatrix}
+\tag{4-3}
+\end{equation}
+
+其中 $\mathbf{y} \sim \mathcal{N}(\mathbf{X}\boldsymbol{\beta}, \sigma^2 \mathbf{I}_N)$，$\mathbf{X} \in \mathbb{R}^{N \times (p+1)J}$，$\boldsymbol{\beta} \in \mathbb{R}^{(p+1)J}$，$\boldsymbol{\varepsilon} \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I}_N)$。
+
+其中 $N = \sum_{j=1}^{J} n_j$。又由于
+
+\begin{equation}
+\begin{bmatrix} \beta_{0j} \\ \beta_{1j} \\ \vdots \\ \beta_{pj} \end{bmatrix}
+=
+\begin{bmatrix}
+w_{00j} & \cdots & w_{0qj} & & & & & & \\
+& & & w_{10j} & \cdots & w_{1qj} & & & \\
+& & & & & & \ddots & & \\
+& & & & & & w_{p0j} & \cdots & w_{pqj}
+\end{bmatrix}
+\begin{bmatrix} \gamma_{00} \\ \vdots \\ \gamma_{0q} \\ \gamma_{10} \\ \vdots \\ \gamma_{1q} \\ \vdots \\ \gamma_{p0} \\ \vdots \\ \gamma_{pq} \end{bmatrix}
++
+\begin{bmatrix} \mu_{0j} \\ \mu_{1j} \\ \vdots \\ \mu_{pj} \end{bmatrix}
+\tag{4-4}
+\end{equation}
+
+其中 $\mathbf{W}_j \in \mathbb{R}^{(p+1) \times (p+1)(q+1)}$，$\boldsymbol{\gamma} \in \mathbb{R}^{(p+1)(q+1)}$，$\boldsymbol{\mu}_j \sim \mathcal{N}(\mathbf{0}, \mathbf{D})$。
+
+令
+
+\begin{equation}
+\mathbf{D} = \begin{bmatrix} \tau_{00} & \tau_{01} & \cdots & \tau_{0p} \\ \tau_{10} & \tau_{11} & \cdots & \tau_{1p} \\ \vdots & \vdots & \ddots & \vdots \\ \tau_{p0} & \tau_{p1} & \cdots & \tau_{pp} \end{bmatrix}, \quad
+\mathbf{T} = \begin{bmatrix} \mathbf{D} & & & \\ & \mathbf{D} & & \\ & & \ddots & \\ & & & \mathbf{D} \end{bmatrix}, \quad
+\mathbf{W} = \begin{bmatrix} \mathbf{W}_1 \\ \mathbf{W}_2 \\ \vdots \\ \mathbf{W}_J \end{bmatrix}, \quad
+\boldsymbol{\mu} = \begin{bmatrix} \boldsymbol{\mu}_1 \\ \boldsymbol{\mu}_2 \\ \vdots \\ \boldsymbol{\mu}_J \end{bmatrix}
+\tag{4-5}
+\end{equation}
+
+其中 $\mathbf{D} \in \mathbb{R}^{(p+1) \times (p+1)}$，$\mathbf{T} \in \mathbb{R}^{(p+1)J \times (p+1)J}$，$\mathbf{W} \in \mathbb{R}^{(p+1)J \times (p+1)(q+1)}$，$\boldsymbol{\mu} \sim \mathcal{N}(\mathbf{0}, \mathbf{T})$。
+
+故两层线性模型可以写作：
+
+\begin{equation}
+\begin{cases} \mathbf{y} = \mathbf{X}\boldsymbol{\beta} + \boldsymbol{\varepsilon} \\ \boldsymbol{\beta} = \mathbf{W}\boldsymbol{\gamma} + \boldsymbol{\mu} \end{cases} \Rightarrow \quad \mathbf{y} = \mathbf{X}\mathbf{W}\boldsymbol{\gamma} + \mathbf{X}\boldsymbol{\mu} + \boldsymbol{\varepsilon}
+\tag{4-6}
+\end{equation}
+
+模型~\eqref{eq:4-1} 中各参数的含义如表~\ref{tab:params} 所示：
+
+\begin{table}[H]
+\centering
+\caption{两层线性模型中各参数含义}
+\label{tab:params}
+\begin{tabular}{p{0.30\textwidth}p{0.60\textwidth}}
+\toprule
+参数 & 含义 \\
+\midrule
+$n_j$ / $p$ & 第 $j$ 个二级单元（即组）中包含的一级观测个体数量；每个一级观测具有的协变量个数（不含截距项，故 $\mathbf{X}_j$ 含截距共 $p+1$ 列、$\boldsymbol{\beta}_j\in\mathbb{R}^{p+1}$） \\
+$J$ / $q$ & 二级单元的总数；每个二级单元具有的组层面协变量个数（不含截距项，故每个一级系数对应 $q+1$ 个组级回归项，$\boldsymbol{\gamma}\in\mathbb{R}^{(p+1)(q+1)}$） \\
+$\mathbf{y}_j$、$\mathbf{X}_j$、$\boldsymbol{\beta}_j$、$\boldsymbol{\varepsilon}_j$ & 第 $j$ 组的响应向量、一级设计矩阵（含截距项）、回归系数（随机效应向量）、个体层面误差项（随机扰动） \\
+$\mathbf{W}_j$、$\boldsymbol{\gamma}$、$\boldsymbol{\mu}_j$ & 第 $j$ 组的二级设计矩阵（含截距项）、固定效应系数向量、组层面随机效应（随机系数偏离） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+模型~\eqref{eq:4-1} 中一级模型为：
+
+\begin{equation}
+\mathbf{y}_j = \mathbf{X}_j \boldsymbol{\beta}_j + \boldsymbol{\varepsilon}_j, \quad \boldsymbol{\varepsilon}_j \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I}_{n_j}), \quad j = 1, 2, \dots, J
+\tag{4-7}
+\end{equation}
+
+该模型用于刻画个体层面上响应变量与协变量之间的线性关系，其中误差项 $\boldsymbol{\varepsilon}_j$ 表示无法通过协变量解释的个体层面的随机扰动，体现了响应变量的残差结构。
+
+模型~\eqref{eq:4-1} 中二级模型为：
+
+\begin{equation}
+\boldsymbol{\beta}_j = \mathbf{W}_j \boldsymbol{\gamma} + \boldsymbol{\mu}_j, \quad \boldsymbol{\mu}_j \sim \mathcal{N}(\mathbf{0}, \mathbf{D}), \quad j = 1, 2, \dots, J
+\tag{4-8}
+\end{equation}
+
+该模型刻画了个体层面的回归系数如何受组层面协变量 $\mathbf{W}_j$ 的影响，其中随机效应项 $\boldsymbol{\mu}_j$ 表示组间在个体层面回归系数上的非系统性差异，反映了群体之间的异质性。
+
+将二级模型代入一级模型中，整体模型可写为：
+
+\begin{equation}
+\mathbf{y}_j = \mathbf{X}_j \mathbf{W}_j \boldsymbol{\gamma} + \mathbf{X}_j \boldsymbol{\mu}_j + \boldsymbol{\varepsilon}_j
+\tag{4-9}
+\end{equation}
+
+其中，$\mathbf{X}_j \mathbf{W}_j \boldsymbol{\gamma}$ 为固定效应项，刻画第 $j$ 组中响应变量由组层面协变量所解释的系统性部分，反映了总体趋势及结构性模式；$\mathbf{X}_j \boldsymbol{\mu}_j$ 为随机效应项，反映第 $j$ 组回归系数相对于固定效应结构的偏离，揭示了组内个体间的变异性及组间的非系统性差异。
+
+对两层线性模型~\eqref{eq:4-1}，本文作如下假设：每一层中的自变量与该层及其他层的随机误差项相互独立；$\boldsymbol{\varepsilon}_j$ 与 $\boldsymbol{\mu}_j$ 相互独立；所有自变量 $\mathbf{X}_j$ 与 $\mathbf{W}_j$ 均视为固定（非随机）并独立于误差项；此外，不同组间自变量之间不存在完全线性相关关系。
+
+在多层线性模型中，需要估计的参数包括固定效应向量 $\boldsymbol{\gamma}$、一级观测误差方差 $\sigma^2$ 以及二级随机效应协方差矩阵 $\mathbf{T}$。这三类参数相关联，固定效应的估计依赖于随机效应协方差结构，而随机效应的估计又受到固定效应的影响。因此无法通过解析解一次性获得所有参数的准确估计，必须借助迭代方法进行估计。
+
+在基于 EM 迭代算法对多层线性模型进行参数估计时，$\boldsymbol{\mu}$ 可被视为潜在变量。将 $\boldsymbol{\mu}$ 与观测数据 $\mathbf{y}$ 结合，构成完全数据，记作 $(\mathbf{y}, \boldsymbol{\mu})$。
+
+下面将考察一些相关分布，为推导 EM 算法的迭代步骤做准备：
+
+\textbf{（一）观测数据 $\mathbf{y}$ 的分布}
+
+由于
+
+\begin{equation}
+\mathbf{y} = \mathbf{X}\mathbf{W}\boldsymbol{\gamma} + \mathbf{X}\boldsymbol{\mu} + \boldsymbol{\varepsilon}, \quad \boldsymbol{\mu} \sim \mathcal{N}(\mathbf{0}, \mathbf{T}), \quad \boldsymbol{\varepsilon} \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I}_N)
+\tag{4-10}
+\end{equation}
+
+故
+
+\begin{equation}
+\boldsymbol{y}\sim\mathcal{N}\left(\mathbf{XW}\boldsymbol{\gamma},\ \mathbf{V}\right),\quad \mathbf{V}=\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N} \tag{4-11}
+\end{equation}
+
+（二）完全数据 $(\boldsymbol{y},\boldsymbol{\mu})$ 的分布
+
+\begin{equation}
+\begin{pmatrix}\boldsymbol{y}\\[2pt]\boldsymbol{\mu}\end{pmatrix}\sim\mathcal{N}\left(\begin{pmatrix}\mathbf{XW}\boldsymbol{\gamma}\\[2pt]\mathbf{0}\end{pmatrix},\ \begin{pmatrix}\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N} & \mathbf{XT}^{\mathrm{T}}\\[2pt]\mathbf{TX}^{\mathrm{T}} & \mathbf{T}\end{pmatrix}\right) \tag{4-12}
+\end{equation}
+
+（三）隐变量关于观测数据的条件分布（ $\boldsymbol{\mu}\mid\boldsymbol{y}$ 的分布）
+
+回顾多元正态分布的条件分布性质（下式中 $\mathbf{R}$、$\boldsymbol{a}$、$\boldsymbol{\Sigma}$ 仅为通用占位记号，与本章模型中的设计矩阵 $\mathbf{X}$、随机效应 $\boldsymbol{\mu}_j$ 无关）。设
+
+\begin{equation}
+\mathbf{R}=\begin{bmatrix}\mathbf{R}_{1}\\[2pt]\mathbf{R}_{2}\end{bmatrix}\sim\mathcal{N}\left(\begin{bmatrix}\boldsymbol{a}_{1}\\[2pt]\boldsymbol{a}_{2}\end{bmatrix},\ \begin{bmatrix}\boldsymbol{\Sigma}_{11} & \boldsymbol{\Sigma}_{12}\\[2pt]\boldsymbol{\Sigma}_{21} & \boldsymbol{\Sigma}_{22}\end{bmatrix}\right),\quad \boldsymbol{\Sigma}>\mathbf{0} \tag{4-13}
+\end{equation}
+
+则在给定 $\mathbf{R}_{2}=\boldsymbol{r}_{2}$ 的条件下， $\mathbf{R}_{1}$ 的条件分布为：
+
+\begin{equation}
+\mathbf{R}_{1}\mid \mathbf{R}_{2}=\boldsymbol{r}_{2}\sim\mathcal{N}\left(\boldsymbol{a}_{1}+\boldsymbol{\Sigma}_{12}\boldsymbol{\Sigma}_{22}^{-1}(\boldsymbol{r}_{2}-\boldsymbol{a}_{2}),\ \boldsymbol{\Sigma}_{11}-\boldsymbol{\Sigma}_{12}\boldsymbol{\Sigma}_{22}^{-1}\boldsymbol{\Sigma}_{21}\right) \tag{4-14}
+\end{equation}
+
+由此可得：
+
+\begin{equation}
+\begin{aligned}
+&\boldsymbol{\mu}\mid\boldsymbol{y}\sim\mathcal{N}\left(\boldsymbol{\mu}^{*},\ \mathbf{V}^{*}\right),\\
+&\boldsymbol{\mu}^{*}=\mathbf{TX}^{\mathrm{T}}\left(\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N}\right)^{-1}\left(\boldsymbol{y}-\mathbf{XW}\boldsymbol{\gamma}\right),\\
+&\mathbf{V}^{*}=\mathbf{T}-\mathbf{TX}^{\mathrm{T}}\left(\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N}\right)^{-1}\mathbf{XT}
+\end{aligned} \tag{4-15}
+\end{equation}
+
+由 Woodbury 矩阵恒等式知：
+
+\begin{equation}
+\left(\sigma^{2}\mathbf{I}_{N}+\mathbf{XTX}^{\mathrm{T}}\right)^{-1}=\sigma^{-2}\mathbf{I}_{N}-\sigma^{-2}\mathbf{X}\left(\mathbf{T}^{-1}+\mathbf{X}^{\mathrm{T}}\mathbf{X}\sigma^{-2}\right)^{-1}\mathbf{X}^{\mathrm{T}}\sigma^{-2} \tag{4-16}
+\end{equation}
+
+代入得：
+
+\begin{equation}
+\begin{cases}
+\boldsymbol{\mu}^{*}=\left(\mathbf{X}^{\mathrm{T}}\mathbf{X}+\sigma^{2}\mathbf{T}^{-1}\right)^{-1}\mathbf{X}^{\mathrm{T}}\left(\boldsymbol{y}-\mathbf{XW}\boldsymbol{\gamma}\right)\\[6pt]
+\mathbf{V}^{*}=\left(\mathbf{X}^{\mathrm{T}}\mathbf{X}+\sigma^{2}\mathbf{T}^{-1}\right)^{-1}\sigma^{2}
+\end{cases} \tag{4-17}
+\end{equation}
+
+（四）观测数据关于隐变量的条件分布（ $\boldsymbol{y}\mid\boldsymbol{\mu}$ 的分布）
+
+同理可得：
+
+\begin{equation}
+\boldsymbol{y}\mid\boldsymbol{\mu}\sim\mathcal{N}\left(\mathbf{XW}\boldsymbol{\gamma}+\mathbf{X}\boldsymbol{\mu},\ \sigma^{2}\mathbf{I}_{N}\right) \tag{4-18}
+\end{equation}
+
+综上，得到如下分布：
+
+\begin{equation*}
+\begin{aligned}
+&\boldsymbol{y}\sim\mathcal{N}_{N}\left(\mathbf{XW}\boldsymbol{\gamma},\ \mathbf{V}\right),\quad \mathbf{V}=\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N},\\
+&\boldsymbol{\mu}\sim\mathcal{N}_{(p+1)J}\left(\mathbf{0},\ \mathbf{T}\right),\quad \mathbf{T}=\mathbf{I}_{J}\otimes\mathbf{D},\\
+&\begin{pmatrix}\boldsymbol{y}\\[2pt]\boldsymbol{\mu}\end{pmatrix}\sim\mathcal{N}_{N+(p+1)J}\left(\begin{pmatrix}\mathbf{XW}\boldsymbol{\gamma}\\[2pt]\mathbf{0}\end{pmatrix},\ \begin{pmatrix}\mathbf{XTX}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{N} & \mathbf{XT}^{\mathrm{T}}\\[2pt]\mathbf{TX}^{\mathrm{T}} & \mathbf{T}\end{pmatrix}\right),\\
+&\boldsymbol{\mu}\mid\boldsymbol{y}\sim\mathcal{N}\left(\boldsymbol{\mu}^{*},\ \mathbf{V}^{*}\right),\ \text{其中}\
+\begin{cases}
+\boldsymbol{\mu}^{*}=\left(\mathbf{X}^{\mathrm{T}}\mathbf{X}+\sigma^{2}\mathbf{T}^{-1}\right)^{-1}\mathbf{X}^{\mathrm{T}}\left(\boldsymbol{y}-\mathbf{XW}\boldsymbol{\gamma}\right)\\[6pt]
+\mathbf{V}^{*}=\left(\mathbf{X}^{\mathrm{T}}\mathbf{X}+\sigma^{2}\mathbf{T}^{-1}\right)^{-1}\sigma^{2}
+\end{cases}\\
+&\boldsymbol{y}\mid\boldsymbol{\mu}\sim\mathcal{N}\left(\mathbf{XW}\boldsymbol{\gamma}+\mathbf{X}\boldsymbol{\mu},\ \sigma^{2}\mathbf{I}_{N}\right)
+\end{aligned}
+\end{equation*}
+
+取 $(\boldsymbol{\gamma},\mathbf{D},\sigma^{2})$ 的先验为 flat 无信息先验，即 $\pi(\boldsymbol{\gamma},\mathbf{D},\sigma^{2})\propto 1$ 。
+
+由 $\pi(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\boldsymbol{y},\boldsymbol{\mu})\propto f(\boldsymbol{y},\boldsymbol{\mu}\mid\boldsymbol{\gamma},\mathbf{D},\sigma^{2})\,\pi(\boldsymbol{\gamma},\mathbf{D},\sigma^{2})$ 与 $\mathbf{T}_{k}=\mathbf{I}_{J}\otimes\mathbf{D}_{k}$ ，得完全数据的后验对数似然函数为（只保留与 $\boldsymbol{\gamma},\mathbf{D},\sigma^{2}$ 有关的部分）：
+
+\begin{equation}
+\begin{aligned}
+L\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\boldsymbol{y},\boldsymbol{\mu}\right)\propto&-\frac{N}{2}\ln(\sigma^{2})-\frac{1}{2\sigma^{2}}\sum_{j=1}^{J}\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}\|^{2}\\
+&-\left(\frac{J}{2}\right)\ln\det(\mathbf{D})-\frac{1}{2}\sum_{j=1}^{J}\boldsymbol{\mu}_{j}^{\mathrm{T}}\mathbf{D}^{-1}\boldsymbol{\mu}_{j}
+\end{aligned} \tag{4-19}
+\end{equation}
+
+利用 EM 算法估计参数 $\boldsymbol{\gamma},\mathbf{D},\sigma^{2}$ ，第 $k+1$ 次迭代的 E 步与 M 步为：
+
+\textbf{E 步：} 计算 Q 函数：
+
+\begin{equation}
+\begin{aligned}
+Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}\right)=&\ \mathbb{E}_{\boldsymbol{\mu}\mid\boldsymbol{y},\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}}\left[L\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\boldsymbol{y},\boldsymbol{\mu}\right)\right]\\
+\propto&-\frac{N}{2}\ln(\sigma^{2})-\frac{1}{2\sigma^{2}}\sum_{j=1}^{J}\left[\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\|^{2}+\operatorname{tr}\left(\mathbf{X}_{j}\mathbf{V}_{j}^{*}\mathbf{X}_{j}^{\mathrm{T}}\right)\right]\\
+&-\frac{J}{2}\ln\det(\mathbf{D})-\frac{1}{2}\sum_{j=1}^{J}\left[\boldsymbol{\mu}_{j}^{*\mathrm{T}}\mathbf{D}^{-1}\boldsymbol{\mu}_{j}^{*}+\operatorname{tr}\left(\mathbf{D}^{-1}\mathbf{V}_{j}^{*}\right)\right]
+\end{aligned} \tag{4-20}
+\end{equation}
+
+\textbf{M 步：} 由式（4-17），设 $\boldsymbol{\mu}_{jk}^{*},\ \mathbf{V}_{jk}^{*}$ 分别表示基于 $\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}$ 所得条件分布 $\boldsymbol{\mu}_{jk}\mid\boldsymbol{y}_{jk}\sim\mathcal{N}\left(\boldsymbol{\mu}_{jk}^{*},\ \mathbf{V}_{jk}^{*}\right)$ 的均值与协方差矩阵的估计：
+
+\begin{equation}
+\begin{aligned}
+&\boldsymbol{\mu}_{jk}^{*}=\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}+\hat{\sigma}_{k}^{2}\mathbf{D}_{k}^{-1}\right)^{-1}\mathbf{X}_{j}^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}_{k}\right)\\[4pt]
+&\mathbf{V}_{jk}^{*}=\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}+\hat{\sigma}_{k}^{2}\mathbf{D}_{k}^{-1}\right)^{-1}\hat{\sigma}_{k}^{2}
+\end{aligned} \tag{4-21}
+\end{equation}
+
+\textbf{迭代 $\boldsymbol{\gamma}$ ：}
+
+\begin{equation}
+\begin{aligned}
+\hat{\boldsymbol{\gamma}}_{k+1}&=\arg\max_{\boldsymbol{\gamma}}\ Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}\right)\\
+&=\arg\max_{\boldsymbol{\gamma}}\left[-\frac{1}{2\sigma^{2}}\sum_{j=1}^{J}\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\|^{2}\right]
+\end{aligned} \tag{4-22}
+\end{equation}
+
+故令
+
+\begin{equation}
+\frac{\partial}{\partial\boldsymbol{\gamma}}\sum_{j=1}^{J}\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\|^{2}=\mathbf{0} \tag{4-23}
+\end{equation}
+
+即
+
+\begin{equation}
+\sum_{j=1}^{J}\left(\mathbf{X}_{j}\mathbf{W}_{j}\right)^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\right)=\mathbf{0}\ \Rightarrow\ \sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\mathbf{X}_{j}^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\right)=\left(\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}\mathbf{W}_{j}\right)\boldsymbol{\gamma} \tag{4-24}
+\end{equation}
+
+\begin{equation}
+\hat{\boldsymbol{\gamma}}_{k+1}=\left(\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}\mathbf{W}_{j}\right)^{-1}\left(\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\mathbf{X}_{j}^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\boldsymbol{\mu}_{jk}^{*}\right)\right) \tag{4-25}\label{eq:4-25}
+\end{equation}
+
+式~\eqref{eq:4-25} 为严格 EM 的 $\boldsymbol{\gamma}$ 更新。本文代码实际采用与之收敛点相同、但收敛更快的\textbf{闭式边际 GLS 更新}（即给定 $\mathbf{D},\sigma^{2}$ 时 $\boldsymbol{\gamma}$ 的边际极大似然，相当于 ECME 步）。记第 $j$ 组的 OLS 估计 $\hat{\boldsymbol{\beta}}_{j}^{\mathrm{OLS}}=\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}\right)^{-1}\mathbf{X}_{j}^{\mathrm{T}}\boldsymbol{y}_{j}$，在边际模型下
+
+\begin{equation}
+\hat{\boldsymbol{\beta}}_{j}^{\mathrm{OLS}}\sim\mathcal{N}\left(\mathbf{W}_{j}\boldsymbol{\gamma},\ \boldsymbol{\Lambda}_{j}\right),\quad \boldsymbol{\Lambda}_{j}=\mathbf{D}+\sigma^{2}\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}\right)^{-1} \tag{4-25a}
+\end{equation}
+
+利用恒等式 $\mathbf{X}_{j}^{\mathrm{T}}\mathbf{V}_{j}^{-1}\mathbf{X}_{j}=\boldsymbol{\Lambda}_{j}^{-1}$、$\mathbf{X}_{j}^{\mathrm{T}}\mathbf{V}_{j}^{-1}\boldsymbol{y}_{j}=\boldsymbol{\Lambda}_{j}^{-1}\hat{\boldsymbol{\beta}}_{j}^{\mathrm{OLS}}$（其中 $\mathbf{V}_{j}=\mathbf{X}_{j}\mathbf{D}\mathbf{X}_{j}^{\mathrm{T}}+\sigma^{2}\mathbf{I}_{n_{j}}$），可将 $\boldsymbol{\gamma}$ 的边际 GLS 更新写为
+
+\begin{equation}
+\hat{\boldsymbol{\gamma}}_{k+1}=\left(\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\boldsymbol{\Lambda}_{jk}^{-1}\mathbf{W}_{j}\right)^{-1}\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\boldsymbol{\Lambda}_{jk}^{-1}\hat{\boldsymbol{\beta}}_{j}^{\mathrm{OLS}},\quad \boldsymbol{\Lambda}_{jk}=\mathbf{D}_{k}+\hat{\sigma}_{k}^{2}\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}\right)^{-1} \tag{4-25b}\label{eq:4-25b}
+\end{equation}
+
+式~\eqref{eq:4-25} 与 \eqref{eq:4-25b} 在收敛处一致（均为边际似然关于 $\boldsymbol{\gamma}$ 的稳定点）；当方差分量较大时，\eqref{eq:4-25} 的严格 EM 更新收敛极慢，故实现中采用一步到位的闭式 \eqref{eq:4-25b}。
+
+\textbf{迭代 $\mathbf{D}$ ：}
+
+\begin{equation}
+\begin{aligned}
+\mathbf{D}_{k+1}&=\arg\max_{\mathbf{D}}\ Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}\right)\\
+&=\arg\max_{\mathbf{D}}\left\{-\frac{J}{2}\ln\det(\mathbf{D})-\frac{1}{2}\sum_{j=1}^{J}\left[\boldsymbol{\mu}_{j}^{*\mathrm{T}}\mathbf{D}^{-1}\boldsymbol{\mu}_{j}^{*}+\operatorname{tr}\left(\mathbf{D}^{-1}\mathbf{V}_{j}^{*}\right)\right]\right\}
+\end{aligned} \tag{4-26}
+\end{equation}
+
+利用链式法则、二次型求导法则以及 Kronecker 积和行列式的相关性质：
+
+\begin{equation}
+\begin{aligned}
+&\frac{\partial}{\partial\mathbf{D}}\ln\det(\mathbf{D})=\left(\mathbf{D}^{-1}\right)^{\mathrm{T}}=\mathbf{D}^{-1}\\[4pt]
+&\frac{\partial}{\partial\mathbf{D}}\ \boldsymbol{\mu}_{j}^{*\mathrm{T}}\mathbf{D}^{-1}\boldsymbol{\mu}_{j}^{*}=-\mathbf{D}^{-1}\boldsymbol{\mu}_{j}^{*}\boldsymbol{\mu}_{j}^{*\mathrm{T}}\mathbf{D}^{-1}\\[4pt]
+&\frac{\partial}{\partial\mathbf{D}}\operatorname{tr}\left(\mathbf{D}^{-1}\mathbf{V}_{j}^{*}\right)=-\mathbf{D}^{-1}\mathbf{V}_{j}^{*}\mathbf{D}^{-1}
+\end{aligned} \tag{4-27}
+\end{equation}
+
+故令
+
+\begin{equation}
+\frac{\partial Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}\right)}{\partial\mathbf{D}}\propto J\mathbf{D}^{-1}-\sum_{j=1}^{J}\mathbf{D}^{-1}\left(\boldsymbol{\mu}_{j}^{*}\boldsymbol{\mu}_{j}^{*\mathrm{T}}+\mathbf{V}_{j}^{*}\right)\mathbf{D}^{-1}=\mathbf{0} \tag{4-28}
+\end{equation}
+
+两边同时乘以 $\mathbf{D}$ 得：
+
+\begin{equation}
+J\mathbf{D}=\sum_{j=1}^{J}\left(\boldsymbol{\mu}_{j}^{*}\boldsymbol{\mu}_{j}^{*\mathrm{T}}+\mathbf{V}_{j}^{*}\right) \tag{4-29}
+\end{equation}
+
+故 $\mathbf{D}$ 在第 $k+1$ 次迭代时的更新公式：
+
+\begin{equation}
+\mathbf{D}_{k+1}=\frac{1}{J}\sum_{j=1}^{J}\left(\boldsymbol{\mu}_{jk}^{*}\boldsymbol{\mu}_{jk}^{*\mathrm{T}}+\mathbf{V}_{jk}^{*}\right) \tag{4-30}
+\end{equation}
+
+由于已经得到了 $\hat{\boldsymbol{\gamma}}_{k+1}$ ，故可用 $\hat{\boldsymbol{\gamma}}_{k+1}$ 代替 $\hat{\boldsymbol{\gamma}}_{k}$ ，并令
+
+\begin{equation}
+\boldsymbol{\mu}_{jk}^{*}=\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}+\hat{\sigma}_{k}^{2}\mathbf{D}_{k}^{-1}\right)^{-1}\mathbf{X}_{j}^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}_{k+1}\right) \tag{4-31}
+\end{equation}
+
+最终得到：
+
+\begin{equation}
+\mathbf{D}_{k+1}=\frac{1}{J}\sum_{j=1}^{J}\left(\boldsymbol{\mu}_{jk}^{*}\boldsymbol{\mu}_{jk}^{*\mathrm{T}}+\mathbf{V}_{jk}^{*}\right) \tag{4-32}
+\end{equation}
+
+\textbf{迭代 $\sigma^{2}$ ：}
+
+\begin{equation}
+\begin{aligned}
+\hat{\sigma}_{k+1}^{2}&=\arg\max_{\sigma^{2}}\ Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\hat{\boldsymbol{\gamma}}_{k},\hat{\mathbf{D}}_{k},\hat{\sigma}_{k}^{2}\right)\\
+&=\arg\max_{\sigma^{2}}\left\{-\left[N\ln(\sigma^{2})+\frac{1}{\sigma^{2}}\sum_{j=1}^{J}\left(\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\|^{2}+\operatorname{tr}\left(\mathbf{X}_{j}\mathbf{V}_{j}^{*}\mathbf{X}_{j}^{\mathrm{T}}\right)\right)\right]\right\}
+\end{aligned} \tag{4-33}
+\end{equation}
+
+令
+
+\begin{equation}
+\frac{\partial Q\left(\boldsymbol{\gamma},\mathbf{D},\sigma^{2}\mid\cdots\right)}{\partial\sigma^{2}}\propto N\sigma^{2}-\sum_{j=1}^{J}\left[\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\boldsymbol{\gamma}-\mathbf{X}_{j}\boldsymbol{\mu}_{j}^{*}\|^{2}+\operatorname{tr}\left(\mathbf{X}_{j}\mathbf{V}_{j}^{*}\mathbf{X}_{j}^{\mathrm{T}}\right)\right]=0 \tag{4-34}
+\end{equation}
+
+由于已经得到了 $\hat{\boldsymbol{\gamma}}_{k+1},\mathbf{D}_{k+1}$ ，故可用 $\hat{\boldsymbol{\gamma}}_{k+1},\mathbf{D}_{k+1}$ 分别代替 $\hat{\boldsymbol{\gamma}}_{k},\mathbf{D}_{k}$ ，并令
+
+\begin{equation}
+\hat{\sigma}_{k+1}^{2}=\frac{1}{N}\sum_{j=1}^{J}\left[\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}_{k+1}-\mathbf{X}_{j}\boldsymbol{\mu}_{jk}^{*}\|^{2}+\operatorname{tr}\left(\mathbf{X}_{j}\mathbf{V}_{jk}^{*}\mathbf{X}_{j}^{\mathrm{T}}\right)\right] \tag{4-35}
+\end{equation}
+
+其中， $\boldsymbol{\mu}_{jk}^{*}=\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}+\hat{\sigma}_{k}^{2}\mathbf{D}_{k+1}^{-1}\right)^{-1}\mathbf{X}_{j}^{\mathrm{T}}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}_{k+1}\right)$ ， $\mathbf{V}_{jk}^{*}=\hat{\sigma}_{k}^{2}\left(\mathbf{X}_{j}^{\mathrm{T}}\mathbf{X}_{j}+\hat{\sigma}_{k}^{2}\mathbf{D}_{k+1}^{-1}\right)^{-1}$ 。
+
+\textbf{方差分量的 REML 校正。} 上述 ML 更新（4-32、4-35）把 GLS 估计 $\hat{\boldsymbol{\gamma}}$ 当作已知。当组数 $J$ 有限时，估计 $\boldsymbol{\gamma}$ 会消耗自由度，使 $\mathbf{D},\sigma^{2}$ 系统性偏小。REML 通过把 $\hat{\boldsymbol{\gamma}}$ 的不确定性传播回二阶矩来校正。记 $\hat{\boldsymbol{\gamma}}$ 的边际 GLS 协方差
+
+\begin{equation}
+\mathbf{C}=\left(\sum_{j=1}^{J}\mathbf{W}_{j}^{\mathrm{T}}\boldsymbol{\Lambda}_{j}^{-1}\mathbf{W}_{j}\right)^{-1} \tag{4-35a}
+\end{equation}
+
+由 $\hat{\boldsymbol{\mu}}_{j}=\mathbf{D}\mathbf{X}_{j}^{\mathrm{T}}\mathbf{V}_{j}^{-1}\left(\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}\right)$ 得 $\partial\hat{\boldsymbol{\mu}}_{j}/\partial\hat{\boldsymbol{\gamma}}=-\mathbf{D}\boldsymbol{\Lambda}_{j}^{-1}\mathbf{W}_{j}=:-\mathbf{B}_{j}$，故 $\mathbb{E}\!\left[\boldsymbol{\mu}_{j}\boldsymbol{\mu}_{j}^{\mathrm{T}}\right]$ 额外含 $\mathbf{B}_{j}\mathbf{C}\mathbf{B}_{j}^{\mathrm{T}}$，$\mathbf{D}$ 的 REML 更新为
+
+\begin{equation}
+\mathbf{D}_{k+1}^{\mathrm{REML}}=\frac{1}{J}\sum_{j=1}^{J}\left(\boldsymbol{\mu}_{jk}^{*}\boldsymbol{\mu}_{jk}^{*\mathrm{T}}+\mathbf{V}_{jk}^{*}+\mathbf{B}_{jk}\mathbf{C}_{k}\mathbf{B}_{jk}^{\mathrm{T}}\right),\quad \mathbf{B}_{jk}=\mathbf{D}_{k}\boldsymbol{\Lambda}_{jk}^{-1}\mathbf{W}_{j} \tag{4-35b}\label{eq:4-35b}
+\end{equation}
+
+对 $\sigma^{2}$，$\hat{\boldsymbol{\gamma}}$ 的不确定性同样进入残差平方和：令 $\mathbf{A}_{j}=\mathbf{X}_{j}\mathbf{W}_{j}-\mathbf{X}_{j}\mathbf{D}\boldsymbol{\Lambda}_{j}^{-1}\mathbf{W}_{j}$，则
+
+\begin{equation}
+\hat{\sigma}_{k+1}^{2,\mathrm{REML}}=\frac{1}{N}\sum_{j=1}^{J}\left[\left\|\boldsymbol{y}_{j}-\mathbf{X}_{j}\mathbf{W}_{j}\hat{\boldsymbol{\gamma}}_{k+1}-\mathbf{X}_{j}\boldsymbol{\mu}_{jk}^{*}\right\|^{2}+\operatorname{tr}\!\left(\mathbf{X}_{j}\mathbf{V}_{jk}^{*}\mathbf{X}_{j}^{\mathrm{T}}\right)+\operatorname{tr}\!\left(\mathbf{A}_{jk}\mathbf{C}_{k+1}\mathbf{A}_{jk}^{\mathrm{T}}\right)\right] \tag{4-35c}
+\end{equation}
+
+按多周期 ECM 次序，$\mathbf{D}$ 的 REML 量（$\mathbf{B}_{jk},\mathbf{C}_{k}$）在更新前的 $\mathbf{D}_{k}$ 处评价，$\sigma^{2}$ 的（$\mathbf{A}_{jk},\mathbf{C}_{k+1}$）在刚更新的 $\mathbf{D}_{k+1}$ 处评价，二者仅在不动点处重合。除数仍为 $J$ 与 $N$，迹项提供固定效应自由度校正；在无随机效应的特例下，该不动点退化为残差方差 $RSS/(N-\dim\boldsymbol{\gamma})$。相应地，EM 单调不减的目标量由观测数据边际对数似然改为\textbf{限制对数似然}
+
+\begin{equation}
+\ell_{R}=\ell_{\mathrm{ML}}\!\left(\hat{\boldsymbol{\gamma}},\mathbf{D},\sigma^{2}\right)+\frac{1}{2}\ln\lvert\mathbf{C}\rvert+\frac{\dim\boldsymbol{\gamma}}{2}\ln(2\pi) \tag{4-35d}
+\end{equation}
+
+REML 校正由全局选项 \texttt{options(hlm\_reml=TRUE)} 启用（仅本章模拟驱动开启），默认 \texttt{FALSE} 即上面的 ML 更新。
+
+以上分析得出，在无信息先验的贝叶斯框架下，用于估计两层线性模型参数 $\boldsymbol{\gamma},\mathbf{D},\sigma^{2}$ 的 EM 算法迭代公式。
+
+从另一个角度，也可以将 $\boldsymbol{\beta}$ 视为隐变量。以对 $\boldsymbol{\gamma}$ 的估计为例，考虑以下模型：
+
+\begin{equation}
+\boldsymbol{y}_{j}\mid\boldsymbol{\beta}_{j}\sim\mathcal{N}\left(\mathbf{X}_{j}\boldsymbol{\beta}_{j},\ \sigma^{2}\mathbf{I}_{n_{j}}\right),\quad \boldsymbol{\beta}_{j}\sim\mathcal{N}\left(\mathbf{W}_{j}\boldsymbol{\gamma},\ \mathbf{D}\right) \tag{4-36}
+\end{equation}
+
+\subsubsection{数值模拟与结果分析}
+
+本文选取 $J=20$、$p=2$、$q=3$（即每组一级模型含截距共 $p+1=3$ 个回归系数、$\boldsymbol{\gamma}\in\mathbb{R}^{(p+1)(q+1)}=\mathbb{R}^{12}$）的两层线性模型，以有放回方式从给定集合中随机抽取各组样本容量 $n_j$。模拟数据中真实参数 $\boldsymbol{\gamma}$、$\boldsymbol{D}$、$\sigma^2$ 与观测 $\boldsymbol{y}_j$ 按设定方式生成：二级协方差矩阵 $\boldsymbol{D}$ 由随机矩阵经 QR 分解的正交因子作正交变换 $\boldsymbol{D}=\boldsymbol{Q}\boldsymbol{\Lambda}\boldsymbol{Q}^{\top}$ 构造，固定效应 $\boldsymbol{\gamma}$ 与个体误差方差 $\sigma^2$ 自均匀分布取值，组层与个体层误差由相应正态分布生成。算法最大迭代 50 次，收敛容差固定。为便于绘图，按模型表达式 $\boldsymbol{\beta}_j=\boldsymbol{W}_j\boldsymbol{\gamma}+\boldsymbol{\mu}_j$、$\boldsymbol{y}_j=\boldsymbol{X}_j\boldsymbol{\beta}_j+\boldsymbol{\varepsilon}_j$ 生成数据，并对单次执行与 500 次独立重复模拟两种情形作对比。
+
+主要结论如下：
+
+\begin{itemize}
+  \item 迭代过程中，除极少数元素外，$\hat{\boldsymbol{\gamma}}$、$\hat{\boldsymbol{D}}$、$\hat{\sigma}^2$ 各参数（或其元素）迅速逼近真实值，三者的 $\mathrm{MSE}$ 也迅速下降并趋于稳定，初步验证了参数更新过程的合理性与有效性。
+  \item 由于本章模拟启用 REML（见下文方差分量的 REML 校正），EM 单调不减的目标量为限制对数似然 $\ell_R$（而非观测数据边际对数似然 $\ln L(\cdots\mid Y)$）；模拟中 $\ell_R$ 呈单调递增并趋于稳定，逼近极大值，符合 EM 算法在相应口径下似然单调不减的理论性质。
+  \item 评价指标取 $\mathrm{MSE}_{\hat{\boldsymbol{\gamma}}}=\lvert\hat{\boldsymbol{\gamma}}-\boldsymbol{\gamma}_{\text{真实值}}\rvert_{2}$、$\mathrm{MSE}_{D}=\lvert\hat{\boldsymbol{D}}-\boldsymbol{D}_{\text{真实值}}\rvert_{F}$、$\mathrm{MSE}_{\hat{\sigma}^2}=\lvert\hat{\sigma}^2-\sigma^2_{\text{真实值}}\rvert$（注：此三项分别为 $L_2$ 范数、Frobenius 范数与绝对偏差，均未取平方，与第 3 章按平方定义的 MSE 口径不同，量纲不可直接互比），500 次重复取平均后路径平滑收敛。
+  \item 初值敏感性分析采用两种随机初始化策略：与模拟数据同分布的“同分布型初始化方法”，以及扩展了各参数分布取值范围的“扩展型初始化方法”。即便初值不同导致单次迭代路径存在差异，500 次独立重复后两种方法均能稳定收敛至真实值附近。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/two-level-model/figures/01_em_single_iter.png}\hfill\figimg{0.46\textwidth}{code/two-level-model/figures/03_em_500sim_iter.png}
+\caption{EM 算法在两层线性模型中的迭代过程与性能评估（左：单次执行；右：500 次模拟）}
+\label{fig:hlm-em}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/two-level-model/figures/05_em_normal_init_iter.png}\hfill\figimg{0.46\textwidth}{code/two-level-model/figures/07_em_bold_init_iter.png}
+\caption{不同参数初始化方法下的迭代过程与性能评估（左：同分布型；右：扩展型；均 500 次模拟）}
+\label{fig:hlm-em-init}
+\end{figure}
+
+\subsection{MCEM 算法在多层线性模型中的应用}
+
+\subsubsection{迭代过程}
+
+类似地，给出 MCEM 算法在第 $k+1$ 次迭代时的 E 步与 M 步。
+
+\textbf{E 步}：设第 $k$ 次迭代得到条件分布：
+
+\begin{equation}
+\boldsymbol{\mu}_{jk}\mid \boldsymbol{y}_j \sim \mathcal{N}(\hat{\boldsymbol{\mu}}_{jk},\, \hat{V}_{jk}),\quad
+\text{其中}\ 
+\begin{cases}
+\hat{\boldsymbol{\mu}}_{jk}=\left(X_j^{\top}X_j+\hat{\sigma}_k^2\hat{D}_k^{-1}\right)^{-1}X_j^{\top}\left(\boldsymbol{y}_j-X_jW_j\hat{\boldsymbol{\gamma}}_k\right),\\[2mm]
+\hat{V}_{jk}=\left(X_j^{\top}X_j+\hat{\sigma}_k^2\hat{D}_k^{-1}\right)^{-1}\hat{\sigma}_k^2
+\end{cases}
+\tag{4-37}
+\end{equation}
+
+则第 $k+1$ 次迭代时，从该分布中抽取 $M$ 个样本：$\boldsymbol{\mu}_j^{(1),k+1},\cdots,\boldsymbol{\mu}_j^{(M),k+1}$，记
+
+\begin{equation*}
+\bar{\boldsymbol{\mu}}_j^{k+1}=\frac{1}{M}\sum_{m=1}^{M}\boldsymbol{\mu}_j^{(m),k+1},
+\end{equation*}
+
+近似计算 Q 函数：
+
+\begin{equation}
+\begin{aligned}
+Q\left(\boldsymbol{\gamma},D,\sigma^2\mid \hat{\boldsymbol{\gamma}}_k,\hat{D}_k,\hat{\sigma}_k^2\right)
+&=\int\left[\ln L\left(\boldsymbol{\gamma},D,\sigma^2\mid \boldsymbol{y},\boldsymbol{\mu}\right)\right]
+p\left(\boldsymbol{\mu}\mid \boldsymbol{y},\hat{\boldsymbol{\gamma}}_k,\hat{D}_k,\hat{\sigma}_k^2\right)\mathrm{d}\boldsymbol{\mu}\\
+&\approx\frac{1}{M}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left[\ln L\left(\boldsymbol{\gamma},D,\sigma^2\mid \boldsymbol{y}_j,\boldsymbol{\mu}_j^{(m),k+1}\right)\right]
+\end{aligned}
+\tag{4-38}
+\end{equation}
+
+即
+
+\begin{equation}
+\resizebox{\linewidth}{!}{$\displaystyle
+\begin{aligned}
+Q\left(\boldsymbol{\gamma},D,\sigma^2\mid \hat{\boldsymbol{\gamma}}_k,\hat{D}_k,\hat{\sigma}_k^2\right)
+&\propto\frac{1}{M}\sum_{m=1}^{M}\left(
+\begin{aligned}
+&-\frac{N}{2}\ln(\sigma^2)-\frac{1}{2\sigma^2}\sum_{j=1}^{J}
+\lVert \boldsymbol{y}_j-X_jW_j\boldsymbol{\gamma}-X_j\boldsymbol{\mu}_j^{(m),k+1}\rVert^2\\
+&-\left(\frac{J}{2}\right)\ln\lvert D\rvert-\frac{1}{2}\sum_{j=1}^{J}
+\left(\boldsymbol{\mu}_j^{(m),k+1}\right)^{\top}D^{-1}\boldsymbol{\mu}_j^{(m),k+1}
+\end{aligned}
+\right)\\
+&\propto-\frac{N}{2}\ln(\sigma^2)-\left(\frac{J}{2}\right)\ln\lvert D\rvert\\
+&\quad-\frac{1}{2M}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left(
+\frac{1}{\sigma^2}\lVert \boldsymbol{y}_j-X_jW_j\boldsymbol{\gamma}-X_j\boldsymbol{\mu}_j^{(m),k+1}\rVert^2+
+\left(\boldsymbol{\mu}_j^{(m),k+1}\right)^{\top}D^{-1}\boldsymbol{\mu}_j^{(m),k+1}
+\right)
+\end{aligned}
+$}
+\tag{4-39}
+\end{equation}
+
+\textbf{M 步}：根据新的 Q 函数，求解参数更新公式。
+
+\textbf{迭代 $\boldsymbol{\gamma}$}：迭代式仍为
+
+\begin{equation}
+\hat{\boldsymbol{\gamma}}_{k+1}=\left(\sum_{j=1}^{J}W_j^{\top}X_j^{\top}X_jW_j\right)^{-1}
+\frac{1}{M}\sum_{m=1}^{M}\sum_{j=1}^{J}W_j^{\top}X_j^{\top}
+\left(\boldsymbol{y}_j-X_j\boldsymbol{\mu}_j^{(m),k+1}\right)
+\tag{4-40}\label{eq:4-40}
+\end{equation}
+
+\textbf{迭代 $D$}：
+
+\begin{equation}
+\begin{aligned}
+\frac{\partial}{\partial D}
+&\left(-\frac{J}{2}\ln\lvert D\rvert-\frac{1}{2M}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left(\boldsymbol{\mu}_j^{(m),k+1}\right)^{\top}D^{-1}\boldsymbol{\mu}_j^{(m),k+1}\right)\\
+&=-\frac{J}{2}D^{-1}+\frac{1}{2M}\sum_{m=1}^{M}\sum_{j=1}^{J}
+D^{-1}\boldsymbol{\mu}_j^{(m),k+1}\left(\boldsymbol{\mu}_j^{(m),k+1}\right)^{\top}D^{-1}
+\end{aligned}
+\tag{4-41}
+\end{equation}
+
+令其为 $\mathbf{0}$，并在两边左右同乘 $D$，得
+
+\begin{equation}
+D_{k+1}=\frac{1}{MJ}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\boldsymbol{\mu}_j^{(m),k+1}\left(\boldsymbol{\mu}_j^{(m),k+1}\right)^{\top}
+\tag{4-42}\label{eq:4-42}
+\end{equation}
+
+\textbf{迭代 $\sigma^2$}：
+
+令
+
+\begin{equation}
+\begin{aligned}
+\frac{\partial}{\partial \sigma^2}
+&\left(-\frac{N}{2}\ln(\sigma^2)-\frac{1}{2M}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left(\frac{1}{\sigma^2}\lVert \boldsymbol{y}_j-X_jW_j\boldsymbol{\gamma}-X_j\boldsymbol{\mu}_j^{(m),k+1}\rVert^2\right)\right)\\
+&=-\frac{N}{2\sigma^2}+\frac{1}{2M(\sigma^2)^2}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left(\lVert \boldsymbol{y}_j-X_jW_j\boldsymbol{\gamma}-X_j\boldsymbol{\mu}_j^{(m),k+1}\rVert^2\right)=0
+\end{aligned}
+\tag{4-43}
+\end{equation}
+
+并用 $\hat{\boldsymbol{\gamma}}_{k+1}$ 代替 $\hat{\boldsymbol{\gamma}}_k$，得到
+
+\begin{equation}
+\hat{\sigma}_{k+1}^2=\frac{1}{MN}\sum_{m=1}^{M}\sum_{j=1}^{J}
+\left(\lVert \boldsymbol{y}_j-X_jW_j\hat{\boldsymbol{\gamma}}_{k+1}-X_j\boldsymbol{\mu}_j^{(m),k+1}\rVert^2\right)
+\tag{4-44}\label{eq:4-44}
+\end{equation}
+
+$\boldsymbol{\gamma}$ 的迭代 \eqref{eq:4-40} 仍可用与 EM 相同的闭式边际 GLS \eqref{eq:4-25b}，Monte Carlo 误差只进入 $D$ 与 $\sigma^2$ 的更新。启用 REML（\texttt{options(hlm\_reml=TRUE)}）时，MCEM 的 E 步与 4.1 节的 EM REML 校正一致：更新 $D$ 的样本从膨胀协方差 $\mathcal{N}\!\left(\boldsymbol{\mu}_{jk}^{*},\ \mathbf{V}_{jk}^{*}+\mathbf{B}_{jk}\mathbf{C}_{k}\mathbf{B}_{jk}^{\mathrm{T}}\right)$ 抽取，使样本二阶矩复现式~\eqref{eq:4-35b}；更新 $\sigma^2$ 的样本仍用 ML 协方差 $\mathcal{N}(\boldsymbol{\mu}_{jk}^{*},\mathbf{V}_{jk}^{*})$，并显式加入 $\sum_{j}\operatorname{tr}\!\left(\mathbf{A}_{jk}\mathbf{C}_{k+1}\mathbf{A}_{jk}^{\mathrm{T}}\right)$ 以避免重复计数。
+
+以上分析分别得出了，在无信息先验 $\pi(\boldsymbol{\gamma},D,\sigma^2)\propto 1$ 的贝叶斯框架下，用于估计两层线性模型参数 $\boldsymbol{\gamma},D,\sigma^2$ 的 MCEM 算法迭代公式。
+
+\subsubsection{数值模拟与结果分析}
+
+\textbf{模拟设定。} 在与第 4.1.2 节相同的两层线性模型模拟数据与参数初始化方法的基础上，每次迭代时均从条件分布 $\boldsymbol{\mu}_{jk}\mid \boldsymbol{y}_j$ 中抽取 $M$ 个 Monte Carlo 样本，据此构造 $\boldsymbol{\gamma}$、$\boldsymbol{D}$、$\sigma^2$ 的迭代估计（见式~\eqref{eq:4-40}、\eqref{eq:4-42}、\eqref{eq:4-44}）。最大迭代次数方面，表~\ref{tab:hlm-mse} 的 EM 与 MCEM（$M=50$）代表性对比（由 \texttt{driver\_compare500.R} 生成）取 30 次，图~\ref{fig:hlm-mcem-single}、\ref{fig:hlm-mcem-500} 的采样次数对比（$M=10/100$）取 50 次；收敛准则与容差均与 EM 算法保持一致，独立重复模拟 500 次并对各次估计取平均。对比 EM 算法与 MCEM 算法（表~\ref{tab:hlm-mse} 以 $M=50$ 作代表性对比，图~\ref{fig:hlm-mcem-single}、\ref{fig:hlm-mcem-500} 进一步考察采样次数由 10 增至 100 的影响），从收敛性、稳定性、估计精度（MSE）与计算效率四方面评估。
+
+\textbf{主要结论。}
+
+\begin{itemize}
+  \item \textbf{收敛与耗时。} EM 算法在第 12 次迭代收敛，单次耗时约 0.184 秒；MCEM 算法在 10 次与 100 次采样下单次分别耗时约 0.586 秒与 1.662 秒，且在最大迭代次数（设为 50）后仍未完全收敛（持续小幅震荡）。
+  \item \textbf{采样次数的影响。} 二级协方差矩阵 $\hat{\boldsymbol{D}}$ 对采样量最敏感，是总 MSE 中占比最高、估计最具挑战性的部分；而 $\sigma^2$ 的估计即便在较低采样量下也表现稳定。采样次数越高，参数估计路径越平稳。
+  \item \textbf{与 EM 的精度对比。} MCEM 与 EM 的总体精度处于相近量级（见下表，采样次数 50 时总 MSE 分别约为 0.45 与 0.37）；图~\ref{fig:hlm-mcem-single}、\ref{fig:hlm-mcem-500} 进一步展示了采样次数由 10 增至 100 时单次与 500 次模拟的迭代路径与性能变化。
+  \item \textbf{计算效率权衡。} 100 次采样的耗时约为 10 次采样的 3 倍，但精度并未随之数量级提升；对精度要求不高的场景可适当减少每次迭代的采样次数，以显著节约计算资源。
+  \item \textbf{通用性。} 在已知潜变量条件分布的前提下，MCEM 原理简洁、实现简便，且克服了传统 EM 对 Q 函数解析表达的依赖，可作为 EM 的有效近似替代方案。
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{500 次模拟下 EM 与 MCEM（采样次数 50）算法的 MSE 对比（由 \texttt{driver\_compare500.R} 生成；EM 平均约 11.6 步收敛，MCEM 取第 30 次迭代）}
+\label{tab:hlm-mse}
+\begin{tabular}{lll}
+\toprule
+指标 & EM 算法 & MCEM（采样次数 50） \\
+\midrule
+总 MSE & 0.45254 & 0.36808 \\
+$\hat{\boldsymbol{\gamma}}$ 向量的 MSE & 0.16810 & 0.16562 \\
+$\hat{\boldsymbol{D}}$ 矩阵的 MSE & 0.28075 & 0.19965 \\
+$\hat{\sigma}^2$ 标量的 MSE & 0.00369 & 0.00282 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/two-level-model/figures/11_mcem_M10_single_iter.png}\hfill\figimg{0.46\textwidth}{code/two-level-model/figures/13_mcem_M100_single_iter.png}
+\caption{MCEM 算法（10 次与 100 次采样）单次执行效果对比}
+\label{fig:hlm-mcem-single}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\figimg{0.46\textwidth}{code/two-level-model/figures/15_mcem_M10_500sim_iter.png}\hfill\figimg{0.46\textwidth}{code/two-level-model/figures/17_mcem_M100_500sim_iter.png}
+\caption{MCEM 算法（10 次采样和 100 次采样）500 次模拟取平均的迭代图示}
+\label{fig:hlm-mcem-500}
+\end{figure}
+
+\section{总结与展望}
+
+\subsection{总结}
+
+本文首先系统梳理了 EM 算法及其衍生算法的发展脉络与研究现状，详细阐述了 EM 算法、MCEM 算法的基本原理，并简要分析了 EM 算法的收敛性质以及 MCEM 算法中 Monte Carlo 样本量的选取策略。在此基础上，针对具有代表性的 t 回归模型和两层线性回归模型，本文基于 t 分布的定义与生成机制在前一模型中引入潜变量，直接将后一模型中的二级随机效应视为潜变量，分别构建完全数据，并详细推导两算法的迭代更新公式。
+
+此外，本文利用 EM 算法与 MCEM 算法开展数值模拟，验证了两算法在 t 回归模型和两层线性回归模型中参数估计的可行性与性能。针对 t 回归模型，本文分别探讨了 EM 算法、MCEM 算法的迭代次数、参数估计误差与 t 回归误差项自由度之间的关系。对于两层线性模型，本文也通过数值模拟，验证了 EM 算法估计的有效性，以及在本章 REML 设定下 EM 算法使限制对数似然 $\ell_R$ 单调增加的性质（ML 口径下相应为观测数据对数似然）。此外，本文还基于以上两种模型的特点，验证并分析了 EM 算法对参数初值的“不敏感性”，通过多次模拟比较 EM 算法和不同采样次数的 MCEM 算法在估计精度、计算资源消耗方面的区别，并为利用 MCEM 算法进行参数估计提供了有益的参考。
+
+\subsection{展望}
+
+本文在以下几个方面还有待探索和改进：
+
+\begin{itemize}
+  \item 本文所研究的模型结构相对简单，导致其对应的 Q 函数具有单峰特性，各参数的极大似然估计值唯一，因此未能充分揭示 EM 算法在多峰或复杂模型结构下对初始值的敏感性问题。针对 Q 函数存在多个局部极大值的情形，后续可深入探讨初始值对估计结果的影响，并尝试引入多初值策略、全局优化方法或变分推断等手段，以提升算法的稳健性与收敛性能；
+  \item 本文所考察的模型均具备 Q 函数的显式解析表达，可直接采用标准 EM 算法进行参数估计，尚未涵盖 Q 函数无法解析表示、需依赖数值积分或模拟方法构建的更复杂情形，因而未能充分体现 MCEM 算法在高维模型或无解析结构模型下的优势。未来可考虑将 MCEM 算法推广应用于更复杂的层级结构模型、广义线性混合模型或非参数贝叶斯模型中，进一步验证其在实际问题中的适用性与有效性；
+  \item MCEM 算法的关键在于对隐变量条件分布的有效采样，然而在实际应用中，该条件分布往往难以显式表示或直接抽样，限制了算法的适用范围。为解决这一问题，可引入马尔可夫链蒙特卡洛（MCMC）方法，如 Gibbs 采样或 Metropolis-Hastings 算法，以实现对高维隐变量的高效近似抽样。此外，也可考虑采用重要性采样方法，通过构建适当的提议分布并引入权重修正机制，在目标分布密度已知或可计算的情况下实现间接采样，提升估计精度与计算效率。
+\end{itemize}
+
+\phantomsection
+\addcontentsline{toc}{section}{参考文献}
+\begin{thebibliography}{99}
+  \bibitem{ref1} M'kendrick A. Applications of mathematics to medical problems[J]. Proceedings of the Edinburgh Mathematical Society, 1925, 44: 98--130.
+  \bibitem{ref2} Baum L E, Petrie T, Soules G, et al. A maximization technique occurring in the statistical analysis of probabilistic functions of Markov chains[J]. The Annals of Mathematical Statistics, 1970, 41(1): 164--171.
+  \bibitem{ref3} Sundberg R. Maximum likelihood theory for incomplete data from an exponential family[J]. Scandinavian Journal of Statistics, 1974: 49--58.
+  \bibitem{ref4} Beale E M, Little R J. Missing values in multivariate analysis[J]. Journal of the Royal Statistical Society Series B: Statistical Methodology, 1975, 37(1): 129--145.
+  \bibitem{ref5} Dempster A P, Laird N M, Rubin D B. Maximum likelihood from incomplete data via the EM algorithm[J]. Journal of the Royal Statistical Society: Series B (Methodological), 1977, 39(1): 1--22.
+  \bibitem{ref6} Wu C J. On the convergence properties of the EM algorithm[J]. The Annals of Statistics, 1983: 95--103.
+  \bibitem{ref7} McLachlan G J, Krishnan T. The EM algorithm and extensions[M]. John Wiley \& Sons, 2008.
+  \bibitem{ref8} Walker S. An EM algorithm for nonlinear random effects models[J]. Biometrics, 1996: 934--944.
+  \bibitem{ref9} Celeux G, Chauveau D, Diebolt J. Stochastic versions of the EM algorithm: an experimental study in the mixture case[J]. Journal of Statistical Computation and Simulation, 1996, 55(4): 287--314.
+  \bibitem{ref10} Nielsen S F. The stochastic EM algorithm: estimation and asymptotic results[J]. Bernoulli, 2000, 6(3): 457--489.
+  \bibitem{ref11} Fort G, Moulines E. Convergence of the Monte Carlo expectation maximization for curved exponential families[J]. The Annals of Statistics, 2003, 31(4): 1220--1259.
+  \bibitem{ref12} Jamshidian M, Jennrich R I. Conjugate gradient acceleration of the EM algorithm[J]. Journal of the American Statistical Association, 1993, 88(421): 221--228.
+  \bibitem{ref13} Meng X L, Rubin D B. Maximum likelihood estimation via the ECM algorithm: a general framework[J]. Biometrika, 1993, 80(2): 267--278.
+  \bibitem{ref14} Liu C, Rubin D B. The ECME algorithm: a simple extension of EM and ECM with faster monotone convergence[J]. Biometrika, 1994, 81(4): 633--648.
+  \bibitem{ref15} Meng X L, Van Dyk D. The EM algorithm---an old folk-song sung to a fast new tune[J]. Journal of the Royal Statistical Society Series B: Statistical Methodology, 1997, 59(3): 511--567.
+  \bibitem{ref16} Liu C, Rubin D B, Wu Y N. Parameter expansion to accelerate EM: the PX-EM algorithm[J]. Biometrika, 1998, 85(4): 755--770.
+  \bibitem{ref17} Li H, Zhang K, Jiang T. The regularized EM algorithm[C]//AAAI. 2005: 807--812.
+  \bibitem{ref18} Friedman N. The Bayesian structural EM algorithm[J]. arXiv preprint arXiv:1301.7373, 2013.
+  \bibitem{ref19} 付淑群, 曹炳元, 马尽文. EM 算法正确收敛性的探讨[J]. 汕头大学学报：自然科学版, 2002, 17(4): 1--12.
+  \bibitem{ref20} 房祥忠, 陈家鼎. EM 算法在假设检验中的应用[J]. 中国科学：A 辑, 2003, 33(2): 180--184.
+  \bibitem{ref21} 吕王勇, 吴耀国, 马洪. 基于 EM 算法的对数正态分布参数估计[J]. 统计与决策, 2007(12): 21--23.
+  \bibitem{ref22} 罗季. Monte Carlo EM 加速算法[J]. 应用概率统计, 2008, 24(3): 312--318.
+  \bibitem{ref23} 严海芳. 对数正态分布的 MCEM 加速算法[J]. 青海大学学报：自然科学版, 2012(2): 74--76.
+  \bibitem{ref24} Yang M S, Lai C Y, Lin C Y. A robust EM clustering algorithm for Gaussian mixture models[J]. Pattern Recognition, 2012, 45(11): 3950--3961.
+  \bibitem{ref25} 王继利, 杨兆军, 李国发, 等. EM 算法的多重威布尔可靠性建模[J]. 吉林大学学报（工学版）, 2014, 44(4): 1010--1015.
+  \bibitem{ref26} Han F, Wei Y. TLS-EM algorithm of mixture density models for exponential families[J]. Journal of Computational and Applied Mathematics, 2022, 403: 113829.
+  \bibitem{ref27} Mari C, Baldassari C. Unsupervised expectation-maximization algorithm initialization for mixture models: a complex network-driven approach for modeling financial time series[J]. Information Sciences, 2022, 617: 1--16.
+  \bibitem{ref28} Lachos V H, Tomarchio S D, Punzo A, et al. An EM algorithm for fitting matrix-variate normal distributions on interval-censored and missing data[J]. Statistics and Computing, 2025, 35(2): 1--11.
+  \bibitem{ref29} Asheri H, Hosseini R, Araabi B N. A new EM algorithm for flexibly tied GMMs with large number of components[J]. Pattern Recognition, 2021, 114: 107836.
+  \bibitem{ref30} Davies K, Pal S, Siddiqua J A. Stochastic EM algorithm for generalized exponential cure rate model and an empirical study[J]. Journal of Applied Statistics, 2021, 48(12): 2112--2135.
+  \bibitem{ref31} Hoffman M D, Phan D, Dohan D, et al. Training chain-of-thought via latent-variable inference[C]//NeurIPS. 2023.
+  \bibitem{ref32} Bae T, Miljkovic T. Loss modeling with the size-biased lognormal mixture and the entropy regularized EM algorithm[J]. Insurance: Mathematics and Economics, 2024, 117: 182--195.
+  \bibitem{ref33} Bai W, Wang Y, Chen W, et al. An expectation-maximization algorithm for training clean diffusion models from corrupted observations[J]. arXiv preprint arXiv:2407.01014, 2024.
+  \bibitem{ref34} Lee S, Gu Y. Deep discrete encoders: identifiable deep generative models for rich data with discrete latent layers[J]. arXiv preprint arXiv:2501.01414, 2025.
+  \bibitem{ref35} 李航. 统计学习方法（第 2 版）[M]. 北京：清华大学出版社, 2012.
+  \bibitem{ref36} 王松桂, 史建红, 尹素菊, 等. 线性模型引论[M]. 北京：科学出版社, 2004: 121--127.
+  \bibitem{ref37} Wei G C, Tanner M A. A Monte Carlo implementation of the EM algorithm and the poor man's data augmentation algorithms[J]. Journal of the American Statistical Association, 1990, 85(411): 699--704.
+  \bibitem{ref38} 杨丰凯, 袁海静. 稳健学生 t 回归模型的非迭代贝叶斯抽样算法[J]. 统计与决策, 2017(9): 19--22.
+  \bibitem{ref39} 杨丰凯, 袁海静. 稳健学生 t 回归模型变点估计的 Gibbs 抽样算法[J]. 统计与决策, 2017, 33(16): 10--14.
+\end{thebibliography}
+
+\par\noindent\rule{\linewidth}{0.4pt}\par
+
+{\small 本文档由论文内容经版式与公式整理而成，公式以 LaTeX 重排，图表由本仓库代码输出文件导入。如有转写差异，以论文原文为准。}
+
+
+\end{document}

@@ -1,0 +1,19 @@
+LMM: hand-coded EM/MCEM vs lme4 / nlme comparison (seed=2025, m=50)
+
+Single-dataset hand EM ML   vs lme4 ML  : max|beta|=8.03e-10 max|G0|=4.72e-07 |sigma^2|=3.87e-09 |logLik|=1.59e-12
+Single-dataset hand EM REML vs lme4 REML: max|beta|=3.58e-10 max|G0|=2.90e-07 |sigma^2|=7.29e-09 |logLik|=2.05e-12
+Single-dataset hand EM ML   vs nlme ML  : max|beta|=5.51e-12 max|G0|=1.22e-08 |sigma^2|=2.92e-10
+Single-dataset hand EM REML vs nlme REML: max|beta|=1.37e-10 max|G0|=3.07e-07 |sigma^2|=7.17e-09
+
+200 simulation runs (true beta=(1,2,-1,0.5) G0 diagonal=(4,2) sigma^2=1):
+  hand EM ML   beta=(0.990,1.989,-0.996,0.504) G0 diag=(3.987,1.952) sigma^2=0.9976 MSE=1.2854
+  lme4 ML      beta=(0.990,1.989,-0.996,0.504) G0 diag=(3.987,1.952) sigma^2=0.9976 MSE=1.2854
+  hand EM REML beta=(0.990,1.989,-0.996,0.504) G0 diag=(4.070,1.993) sigma^2=0.9998 MSE=1.3014
+  lme4 REML    beta=(0.990,1.989,-0.996,0.504) G0 diag=(4.070,1.993) sigma^2=0.9998 MSE=1.3014
+EM vs lme4 mean max-diff: ML=4.84e-07, REML=4.88e-07
+
+MCEM(M=50), 30 simulation runs:
+  MCEM ML      beta=(0.992,1.992,-1.009,0.501) G0 diag=(3.704,1.917) sigma^2=0.9954 MSE=1.4386
+  MCEM REML    beta=(0.992,1.992,-1.009,0.501) G0 diag=(3.777,1.966) sigma^2=0.9971 MSE=1.4337
+
+Interpretation: ML uses divisors m and n, which match lme4/nlme ML but can underestimate variance components. REML propagates fixed-effect uncertainty and should be reported alongside ML when the ML variance estimates are visibly biased.

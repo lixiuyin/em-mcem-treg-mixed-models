@@ -1,0 +1,12 @@
+Student-t regression: hand-coded EM/MCEM vs optim / rlm / hett (seed=2025, n=500, nu=10)
+
+Single-dataset point-by-point: EM(MAP) vs optim(MAP) max|beta|=2.26e-08 |sigma^2|=4.18e-08
+                               EM converted MLE vs optim(MLE) max|beta|=3.91e-05 |sigma^2|=5.70e-04
+
+500 simulations (true beta=(2,3,5) sigma^2=0.4):
+  hand-coded EM(MAP) beta=(2.0005,3.0008,5.0000) sigma^2=0.3977 MSE=3.691e-03
+  optim(MLE)         beta=(2.0005,3.0008,5.0000) sigma^2=0.3997 MSE=3.694e-03
+  hett::tlm          beta=(2.0005,3.0008,5.0000) sigma^2=0.3997 MSE=3.694e-03
+  MASS::rlm          beta=(2.0006,3.0008,5.0001) (M-estimation, no sigma^2)
+
+EM(MAP) vs optim(MAP): mean max|beta|=6.90e-08

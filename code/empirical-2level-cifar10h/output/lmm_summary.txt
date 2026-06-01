@@ -1,0 +1,12 @@
+CIFAR-10H two-level linear model empirical results
+J = 299  N = 59699
+
+  Parameter      EM MCEM_M20 MCEM_M50 MCEM_M200    lme4
+  Intercept  7.6477   7.6475   7.6477    7.6478  7.6477
+ Difficulty  0.1299   0.1299   0.1299    0.1299  0.1299
+    Correct -0.2572  -0.2569  -0.2571   -0.2572 -0.2572
+      Trial -0.0334  -0.0334  -0.0334   -0.0334 -0.0334
+
+EM sigma2=0.1191  intercept ICC=0.4728  logLik=-22423.06
+EM random-effect SD = 0.3268 0.0495 0.2203 0.0377
+lme4 sigma2=0.1191 logLik=-22423.06 singular=FALSE

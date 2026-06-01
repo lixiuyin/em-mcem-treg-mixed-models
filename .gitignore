@@ -1,0 +1,44 @@
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+*.lof
+*.lot
+*.xdv
+# Python
+__pycache__/
+*.pyc
+# R / RStudio
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+Rplots.pdf
+# R binary output (regenerable from R scripts)
+*.rds
+# OS
+.DS_Store
+Thumbs.db
+
+# Local cleanup archive for ignored build/run artifacts
+.local-artifacts/
+
+# Large derived / regenerable data — regenerate via the build scripts
+# (see code/empirical_README.md). The raw inputs are kept committed:
+# cifar10h-raw.zip, cifar10h-probs.npy, and the headline cifar10h_lmm_main.csv /
+# utkface_t_regression.csv that the R analyses read directly.
+code/empirical-t-utkface/data/utkface_embeddings.npz
+code/empirical-2level-cifar10h/data/cifar10h_lmm_full.csv
+code/empirical-2level-cifar10h/data/cifar10h-raw.csv
+
+# Claude Code local settings
+.claude/
+
+# adversary code review report
+code/docs
