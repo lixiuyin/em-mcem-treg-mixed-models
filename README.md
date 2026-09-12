@@ -1,55 +1,55 @@
-# EM and MCEM Algorithms: Complete Derivations, Model Applications, and Empirical Results
+# EM 与 MCEM 算法：完整推导、模型应用与实证结果
 
-> **English** | [中文 (Chinese)](README.zh.md)
+> **简体中文** | [English](README.en.md)
 
-This repository documents the core content of an undergraduate thesis titled "Principles of the EM Algorithm and MCEM Algorithm and Their Applications to Parameter Estimation in Regression Models," providing complete derivations for EM, MCEM, Student's t regression, and the two-level / mixed linear models, together with the implementing code and empirical results.
+本仓库整理本科毕业论文《EM 算法、MCEM 算法的原理及其在回归模型参数估计中的应用》的核心内容，给出 EM、MCEM、Student's t 回归和两层线性模型的完整推导过程，并附实现代码与实证结果。
 
-To ensure stable GitHub rendering, standalone equations use `math` fenced blocks and inline equations uniformly use the `` $`...`$ `` form (backtick-wrapped, to avoid rendering failures when adjacent to punctuation). This document follows the final conventions of the revision:
+为保证 GitHub 渲染稳定，独立公式用 `math` 代码块，行内公式统一用 `` $`...`$ `` 形式（反引号包裹，避免与中文标点相邻时 `$...$` 不渲染）。本文采用修订稿中的最终约定：
 
-- For t regression the prior $`\pi(\beta, \sigma^2)\propto 1/\sigma^2`$ is used, so the MAP update for $`\sigma^2`$ divides by $`n+2`$.
+- t 回归中取先验 $`\pi(\beta, \sigma^2)\propto 1/\sigma^2`$，因此 $`\sigma^2`$ 的 MAP 更新除数为 $`n+2`$。
 
-- For the two-level linear model the flat non-informative prior $`\pi(\gamma, D, \sigma^2)\propto 1`$ is used, so the EM update for $`D`$ divides by $`J`$ and the MCEM update divides by $`MJ`$.
+- 两层线性模型中取平坦无信息先验 $`\pi(\gamma, D, \sigma^2)\propto 1`$，因此 $`D`$ 的 EM 更新除数为 $`J`$，MCEM 更新除数为 $`MJ`$。
 
-- Fixed effects ($`\beta`$ / $`\gamma`$) are always updated via the closed-form marginal GLS (the ECME step); Monte Carlo approximation applies only to the variance components ($`D`$, $`\sigma^2`$).
-- All model implementations follow the **multicycle-ECM** order: after each parameter block is updated, the E step is refreshed (conditional expectations are recomputed / samples are redrawn) before the next block is updated. This order shares the same fixed points as standard EM with a one-shot E step, and the marginal log-likelihood of the observed data remains monotonically non-decreasing (see §4.5, §4.6).
-- The general linear mixed model (§5) is a generalization of the two-level model and uses the same conventions: flat prior, ML divisor for $`G_0`$ is the number of groups $`m`$ (MCEM: $`Mm`$), $`\sigma^2`$ is divided by total sample size $`n`$ (MCEM: $`Mn`$). When ML variance components are visibly downward-biased, `options(lmm_reml=TRUE)` enables REML and reports it side-by-side.
+- 固定效应（$`\beta`$ / $`\gamma`$）一律采用边际 GLS 闭式更新（即 ECME 步）；Monte Carlo 近似只作用于方差分量（$`D`$、$`\sigma^2`$）。
+- 各模型实现均按 **multicycle-ECM** 次序：每更新完一个参数块，就用最新参数刷新 E 步（重算条件期望 / 重新抽样）再更新下一块。该次序与一次性 E 步的标准 EM 共享同一组不动点，且观测数据边际对数似然仍逐步单调不减（详见 §4.5、§4.6）。
+- 一般混合线性模型（§5）是两层模型的推广，沿用同一套约定：平坦先验，ML 口径下 $`G_0`$ 的 EM 除数为组数 $`m`$（MCEM 为 $`Mm`$），$`\sigma^2`$ 除以总样本量 $`n`$（MCEM 为 $`Mn`$）。若 ML 方差分量明显偏小，可用 `options(lmm_reml=TRUE)` 启用 REML 并并列报告。
 
-## Table of Contents
+## 目录
 
-- [1. General EM Algorithm](#1-general-em-algorithm)
-- [2. General MCEM Algorithm](#2-general-mcem-algorithm)
-- [3. Student's t Regression Model](#3-students-t-regression-model)
-- [4. Two-Level Linear Model](#4-two-level-linear-model)
-- [5. General Linear Mixed Model](#5-general-linear-mixed-model)
-- [6. Simulation Results](#6-simulation-results)
-- [7. Empirical Analysis (Real Deep-Learning Data)](#7-empirical-analysis-real-deep-learning-data)
-- [8. Repository Structure](#8-repository-structure)
+- [1. 一般 EM 算法](#1-一般-em-算法)
+- [2. 一般 MCEM 算法](#2-一般-mcem-算法)
+- [3. Student's t 回归模型](#3-students-t-回归模型)
+- [4. 两层线性模型](#4-两层线性模型)
+- [5. 一般混合线性模型](#5-一般混合线性模型)
+- [6. 数值模拟结论](#6-数值模拟结论)
+- [7. 实证分析（深度学习真实数据）](#7-实证分析深度学习真实数据)
+- [8. 仓库结构](#8-仓库结构)
 
-## 1. General EM Algorithm
+## 1. 一般 EM 算法
 
-Let $`Y`$ denote the observed data, $`Z`$ the latent variables or missing data, and $`\theta`$ the parameters. The observed-data likelihood is
+设 $`Y`$ 为观测数据，$`Z`$ 为隐变量或缺失数据，参数为 $`\theta`$。观测数据似然为
 
 ```math
 L(\theta\mid Y)=p(Y\mid\theta)=\int p(Y,Z\mid\theta)\,dZ.
 ```
 
-Directly maximizing this integral is generally intractable. The EM idea is to introduce the conditional distribution $`p(Z\mid Y,\theta_k)`$ under the current parameters $`\theta_k`$, and form the conditional expectation of the complete-data log-likelihood:
+直接最大化该积分通常困难。EM 的思想是引入当前参数 $`\theta_k`$ 下的条件分布 $`p(Z\mid Y,\theta_k)`$，并构造完全数据对数似然的条件期望：
 
 ```math
 Q(\theta\mid\theta_k)
 =E_{\theta_k}[\log p(Y,Z\mid\theta)\mid Y].
 ```
 
-### 1.1 Derivation via Jensen's Inequality
+### 1.1 Jensen 不等式推导
 
-For any density $`q(Z)`$ we have
+对任意密度 $`q(Z)`$ 有
 
 ```math
 \log p(Y\mid\theta)
 =\log\int q(Z)\frac{p(Y,Z\mid\theta)}{q(Z)}\,dZ.
 ```
 
-By Jensen's inequality,
+由 Jensen 不等式，
 
 ```math
 \log p(Y\mid\theta)
@@ -57,7 +57,7 @@ By Jensen's inequality,
 \int q(Z)\log\frac{p(Y,Z\mid\theta)}{q(Z)}\,dZ.
 ```
 
-Setting $`q(Z)=p(Z\mid Y,\theta_k)`$ gives a lower bound on the observed log-likelihood:
+取 $`q(Z)=p(Z\mid Y,\theta_k)`$，得到观测对数似然的下界
 
 ```math
 B(\theta\mid\theta_k)
@@ -65,33 +65,33 @@ B(\theta\mid\theta_k)
 -E_{\theta_k}[\log p(Z\mid Y,\theta_k)\mid Y].
 ```
 
-The second term does not depend on the $`\theta`$ being optimized, so maximizing $`B`$ is equivalent to maximizing $`Q`$.
+其中第二项与待优化的 $`\theta`$ 无关，所以最大化 $`B`$ 等价于最大化 $`Q`$。
 
 <p align="center">
- <img src="code/general/figures/em_concept.png" width="60%" alt="EM lower-bound illustration">
+ <img src="code/general/figures/em_concept.png" width="60%" alt="EM 下界示意图">
 </p>
 
-### 1.2 EM Iteration Steps
+### 1.2 EM 迭代步骤
 
-E step:
+E 步：
 
 ```math
 Q(\theta\mid\theta_k)
 =E_{\theta_k}[\log p(Y,Z\mid\theta)\mid Y].
 ```
 
-M step:
+M 步：
 
 ```math
 \theta_{k+1}
 =\arg\max_{\theta}Q(\theta\mid\theta_k).
 ```
 
-If the M step only requires $`Q(\theta_{k+1}\mid\theta_k)\ge Q(\theta_k\mid\theta_k)`$, the result is the generalized EM (GEM).
+若 M 步只要求 $`Q(\theta_{k+1}\mid\theta_k)\ge Q(\theta_k\mid\theta_k)`$，则得到广义 EM（GEM）。
 
-### 1.3 Monotonicity
+### 1.3 单调性
 
-The observed log-likelihood can be decomposed as
+观测对数似然可分解为
 
 ```math
 \log p(Y\mid\theta)
@@ -99,7 +99,7 @@ The observed log-likelihood can be decomposed as
 -E_{\theta_k}[\log p(Z\mid Y,\theta)\mid Y].
 ```
 
-Furthermore,
+进一步有
 
 ```math
 \log p(Y\mid\theta)-\log p(Y\mid\theta_k)
@@ -107,7 +107,7 @@ Furthermore,
 +KL(p(Z\mid Y,\theta_k)\,\|\,p(Z\mid Y,\theta)).
 ```
 
-Because the KL divergence is non-negative, if the M step does not decrease $`Q`$, then
+由于 KL 散度非负，若 M 步使 $`Q`$ 不下降，则
 
 ```math
 \log p(Y\mid\theta_{k+1})
@@ -115,53 +115,53 @@ Because the KL divergence is non-negative, if the M step does not decrease $`Q`$
 \log p(Y\mid\theta_k).
 ```
 
-Therefore, the observed-data log-likelihood of EM is monotonically non-decreasing. The convergence points are typically stationary points of the likelihood; if the objective is unimodal, a unique maximum-likelihood estimate is obtained.
+因此 EM 的观测数据对数似然单调不下降。其收敛点通常是似然函数的稳定点；若目标函数单峰，则可得到唯一极大似然估计。
 
-## 2. General MCEM Algorithm
+## 2. 一般 MCEM 算法
 
-When the conditional expectation in $`Q(\theta \mid \theta_k)`$ cannot be computed analytically, MCEM approximates the E step via Monte Carlo samples.
+当 $`Q(\theta \mid \theta_k)`$ 中的条件期望无法解析计算时，MCEM 用 Monte Carlo 样本近似 E 步。
 
-Draw samples from the current conditional distribution:
+从当前条件分布抽样：
 
 ```math
 Z^{(1)},\dots,Z^{(M)}
 \sim p(Z\mid Y,\theta_k).
 ```
 
-Approximate the $`Q`$ function by the sample average:
+用样本平均近似 $`Q`$ 函数：
 
 ```math
 Q_M(\theta\mid\theta_k)
 =\frac{1}{M}\sum_{m=1}^{M}\log p(Y,Z^{(m)}\mid\theta).
 ```
 
-The M step becomes
+M 步改为
 
 ```math
 \theta_{k+1}
 =\arg\max_{\theta}Q_M(\theta\mid\theta_k).
 ```
 
-When $`M`$ is large enough, the law of large numbers gives $`Q_M(\theta\mid\theta_k)\to Q(\theta\mid\theta_k)`$, so MCEM approximates EM. The cost is that sampling error introduces stochastic fluctuations in the iterative path, and the observed likelihood is no longer guaranteed to be strictly monotone at each step; it is common practice to increase $`M`$ with iterations or to accept approximate convergence at fixed $`M`$.
+当 $`M`$ 足够大时，由大数定律，$`Q_M(\theta\mid\theta_k)\to Q(\theta\mid\theta_k)`$，因此 MCEM 逼近 EM。代价是采样误差会使迭代路径产生随机波动，观测似然不再保证每一步严格单调；通常需随迭代增加 $`M`$ 或在固定 $`M`$ 下接受近似收敛。
 
-## 3. Student's t Regression Model
+## 3. Student's t 回归模型
 
-### 3.1 Model and Latent-Variable Representation
+### 3.1 模型与隐变量表示
 
-Let
+设
 
 ```math
 y_i=x_i^T\beta+\varepsilon_i,\qquad
 \varepsilon_i\sim t_{\nu}(0,\sigma^2),\qquad i=1,\dots,n.
 ```
 
-where $`x_i=(1,x_{i1},\dots,x_{ip})^T`$, $`\beta`$ is a $`p+1`$-dimensional regression coefficient vector, and the degrees of freedom $`\nu`$ is treated as given. In matrix form, stacking the $`n`$ observations as $`y=(y_1,\dots,y_n)^T`$ and $`X=(x_1,\dots,x_n)^T\in\mathbb{R}^{n\times(p+1)}`$,
+其中 $`x_i=(1,x_{i1},\dots,x_{ip})^T`$，$`\beta`$ 为 $`p+1`$ 维回归系数，自由度 $`\nu`$ 视为给定。写成矩阵形式，将 $`n`$ 个观测堆叠为 $`y=(y_1,\dots,y_n)^T`$、$`X=(x_1,\dots,x_n)^T\in\mathbb{R}^{n\times(p+1)}`$，
 
 ```math
-y=X\beta+\varepsilon,\qquad \varepsilon\sim t_\nu(0,\sigma^2 I_n)\ \text{(rows independent)}.
+y=X\beta+\varepsilon,\qquad \varepsilon\sim t_\nu(0,\sigma^2 I_n)\ \text{（各行独立）}.
 ```
 
-The t distribution can be represented as a normal-gamma mixture. Using the rate parameterization of the Gamma distribution:
+t 分布可表示为正态-伽马混合。采用 Gamma 的 rate 参数化：
 
 ```math
 z_i\sim \mathrm{Gamma}(\frac{\nu}{2},\frac{\nu}{2}),
@@ -172,15 +172,15 @@ y_i\mid z_i,\beta,\sigma^2
 \sim N(x_i^T\beta,\frac{\sigma^2}{z_i}).
 ```
 
-Thus $`z_i`$ serves as a latent variable. Conditioning on $`z_i`$, the model reduces to a weighted normal regression. Collecting the latent scales into the diagonal weight matrix $`W_z=\mathrm{diag}(z_1,\dots,z_n)`$, the conditional model is a heteroscedastic (precision-weighted) Gaussian,
+因此 $`z_i`$ 可作为隐变量。给定 $`z_i`$ 后，模型变为加权正态回归。将隐尺度收进对角权重矩阵 $`W_z=\mathrm{diag}(z_1,\dots,z_n)`$，条件模型即异方差（精度加权）高斯，
 
 ```math
 y\mid z,\beta,\sigma^2\sim N\!\big(X\beta,\ \sigma^2 W_z^{-1}\big),
 ```
 
-so each $`z_i`$ scales the precision of row $`i`$. This is the matrix picture behind the EM: replacing the unobserved $`z_i`$ by their E-step expectations $`\gamma_i^{(k)}=E[z_i\mid y_i]`$ (§3.3) turns the M step into weighted least squares with weight matrix $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$ (§3.5); a large residual drives $`z_i\downarrow`$, automatically down-weighting that observation — the origin of t-regression's robustness.
+即每个 $`z_i`$ 缩放第 $`i`$ 行的精度。这正是 EM 背后的矩阵图景：用 E 步期望 $`\gamma_i^{(k)}=E[z_i\mid y_i]`$（§3.3）替换未观测的 $`z_i`$，M 步即化为以权重矩阵 $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$ 的加权最小二乘（§3.5）；残差越大则 $`z_i\downarrow`$，自动下调该观测的权重——这正是 t 回归稳健性的来源。
 
-The correctness of this representation can be verified by marginalization: integrating out $`z_i`$,
+该表示的正确性可由边际化验证：对 $`z_i`$ 积分，
 
 ```math
 p(y_i\mid\beta,\sigma^2)
@@ -189,11 +189,11 @@ N\!\left(y_i;x_i^T\beta,\frac{\sigma^2}{z_i}\right)
 \mathrm{Gamma}\!\left(z_i;\frac{\nu}{2},\frac{\nu}{2}\right)dz_i,
 ```
 
-The integrand is the kernel of $`\mathrm{Gamma}\!\left(\frac{\nu+1}{2}, \frac{1}{2}\left[\nu+\frac{(y_i-x_i^T\beta)^2}{\sigma^2}\right]\right)`$ with respect to $`z_i`$; integrating yields the normalizing constant and exactly the Student's t density with degrees of freedom $`\nu`$ and scale $`\sigma^2`$, confirming that the marginal is $`t_\nu(x_i^T\beta,\sigma^2)`$.
+被积函数关于 $`z_i`$ 是 $`\mathrm{Gamma}\!\left(\frac{\nu+1}{2}, \frac{1}{2}\left[\nu+\frac{(y_i-x_i^T\beta)^2}{\sigma^2}\right]\right)`$ 的核，积分给出归一化常数后正是自由度 $`\nu`$、尺度 $`\sigma^2`$ 的 Student's t 密度，故边际确为 $`t_\nu(x_i^T\beta,\sigma^2)`$。
 
-### 3.2 Complete-Data Posterior Log-Likelihood
+### 3.2 完全数据后验对数似然
 
-Under this mixture representation,
+在该混合表示下，
 
 ```math
 p(y_i\mid z_i,\beta,\sigma^2)
@@ -212,14 +212,14 @@ z_i^{\nu/2-1}
 \exp(-\frac{\nu z_i}{2}).
 ```
 
-so the complete-data density satisfies
+所以完全数据密度满足
 
 ```math
 p(y_i,z_i\mid\beta,\sigma^2)
 =p(y_i\mid z_i,\beta,\sigma^2)p(z_i).
 ```
 
-Expanding gives
+展开得
 
 ```math
 p(y_i,z_i\mid\beta,\sigma^2)
@@ -232,7 +232,7 @@ z_i^{(\nu+1)/2-1}
 ].
 ```
 
-Taking the product over $`i=1,\dots,n`$ and retaining only terms involving $`\beta, \sigma^2`$:
+对 $`i=1,\dots,n`$ 求乘积，并只保留与 $`\beta, \sigma^2`$ 有关的部分：
 
 ```math
 \log p(y,z\mid\beta,\sigma^2)
@@ -241,7 +241,7 @@ Taking the product over $`i=1,\dots,n`$ and retaining only terms involving $`\be
 -\frac{1}{2\sigma^2}\sum_{i=1}^{n}z_i(y_i-x_i^T\beta)^2.
 ```
 
-The thesis uses the prior $`\pi(\beta,\sigma^2)\propto\frac{1}{\sigma^2}`$, so the complete-data posterior log-likelihood is
+论文采用先验 $`\pi(\beta,\sigma^2)\propto\frac{1}{\sigma^2}`$，故完全数据后验对数似然为
 
 ```math
 \log \pi(\beta,\sigma^2\mid y,z)
@@ -250,9 +250,9 @@ The thesis uses the prior $`\pi(\beta,\sigma^2)\propto\frac{1}{\sigma^2}`$, so t
 -\frac{1}{2\sigma^2}\sum_{i=1}^{n}z_i(y_i-x_i^T\beta)^2.
 ```
 
-### 3.3 Conditional Distribution of $`z_i\mid y_i`$
+### 3.3 条件分布 $`z_i\mid y_i`$
 
-By Bayes' formula,
+由 Bayes 公式，
 
 ```math
 p(z_i\mid y_i,\beta,\sigma^2)
@@ -266,7 +266,7 @@ z_i^{(\nu+1)/2-1}
 ].
 ```
 
-This is exactly the kernel of a Gamma distribution. Under the rate parameterization, i.e., if
+它正是 Gamma 分布核。采用 rate 参数化，即若
 
 ```math
 Z\sim \mathrm{Gamma}(a,b),
@@ -274,7 +274,7 @@ Z\sim \mathrm{Gamma}(a,b),
 p(z)\propto z^{a-1}\exp(-bz),
 ```
 
-then here
+则此处
 
 ```math
 z_i\mid y_i,\beta,\sigma^2
@@ -285,7 +285,7 @@ z_i\mid y_i,\beta,\sigma^2
 ).
 ```
 
-Its conditional expectation is
+其条件期望为
 
 ```math
 E[z_i\mid y_i,\beta,\sigma^2]
@@ -293,7 +293,7 @@ E[z_i\mid y_i,\beta,\sigma^2]
 \frac{\nu+1}{\nu+(y_i-x_i^T\beta)^2/\sigma^2}.
 ```
 
-At iteration $`k`$, define
+在第 $`k`$ 次迭代，记
 
 ```math
 \gamma_i^{(k)}
@@ -301,9 +301,9 @@ At iteration $`k`$, define
 \frac{\nu+1}{\nu+(y_i-x_i^T\beta_k)^2/\sigma_k^2}.
 ```
 
-### 3.4 E Step of the t Regression EM
+### 3.4 t 回归 EM 的 E 步
 
-Substituting the conditional expectation gives
+代入条件期望，得到
 
 ```math
 Q(\beta,\sigma^2\mid\beta_k,\sigma_k^2)
@@ -313,11 +313,11 @@ Q(\beta,\sigma^2\mid\beta_k,\sigma_k^2)
 \gamma_i^{(k)}(y_i-x_i^T\beta)^2.
 ```
 
-Let $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$.
+令 $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$。
 
-### 3.5 M Step of the t Regression EM
+### 3.5 t 回归 EM 的 M 步
 
-Taking the partial derivative with respect to $`\beta`$:
+对 $`\beta`$ 求偏导：
 
 ```math
 \frac{\partial Q}{\partial\beta}
@@ -333,7 +333,7 @@ Taking the partial derivative with respect to $`\beta`$:
 ].
 ```
 
-Setting the partial derivative to zero:
+令偏导为零：
 
 ```math
 \sum_{i=1}^{n}\gamma_i^{(k)}x_i y_i
@@ -341,7 +341,7 @@ Setting the partial derivative to zero:
 \sum_{i=1}^{n}\gamma_i^{(k)}x_i x_i^T\beta.
 ```
 
-Therefore
+因此
 
 ```math
 \beta_{k+1}
@@ -349,7 +349,7 @@ Therefore
 (X^T W_k X)^{-1}X^T W_k y.
 ```
 
-Taking the partial derivative with respect to $`\sigma^2`$:
+对 $`\sigma^2`$ 求偏导：
 
 ```math
 \frac{\partial Q}{\partial\sigma^2}
@@ -359,7 +359,7 @@ Taking the partial derivative with respect to $`\sigma^2`$:
 \sum_{i=1}^{n}\gamma_i^{(k)}(y_i-x_i^T\beta)^2.
 ```
 
-Setting the partial derivative to zero:
+令偏导为零：
 
 ```math
 -(\frac{n}{2}+1)\sigma^2
@@ -368,7 +368,7 @@ Setting the partial derivative to zero:
 =0.
 ```
 
-Rearranging gives
+整理得
 
 ```math
 (n+2)\sigma^2
@@ -376,7 +376,7 @@ Rearranging gives
 \sum_{i=1}^{n}\gamma_i^{(k)}(y_i-x_i^T\beta)^2.
 ```
 
-Substituting $`\beta_{k+1}`$:
+代入 $`\beta_{k+1}`$：
 
 ```math
 \sigma_{k+1}^2
@@ -385,14 +385,14 @@ Substituting $`\beta_{k+1}`$:
 (y-X\beta_{k+1})^TW_k(y-X\beta_{k+1}).
 ```
 
-This shows that the t regression EM is equivalent to iteratively reweighted least squares. Observations with larger residuals receive smaller weights, giving the model its robustness.
+这表明 t 回归 EM 等价于反复进行加权最小二乘。残差越大的样本，其权重越小，因此该模型具有稳健性。
 
-### 3.6 t Regression EM Algorithm
+### 3.6 t 回归 EM 算法流程
 
-Given initial values $`\beta_0, \sigma_0^2`$, degrees of freedom $`\nu`$, maximum iterations $`K`$, and convergence threshold $`\varepsilon`$:
+给定初始值 $`\beta_0, \sigma_0^2`$、自由度 $`\nu`$、最大迭代次数 $`K`$ 和收敛阈值 $`\varepsilon`$：
 
-1. For $`k=0,1,2,\dots`$, repeat the E step and M step.
-2. E step: compute the conditional weight for each observation:
+1. 对 $`k=0,1,2,\dots`$ 重复执行 E 步与 M 步。
+2. E 步计算每个样本的条件权重：
 
 ```math
 \gamma_i^{(k)}
@@ -401,15 +401,15 @@ Given initial values $`\beta_0, \sigma_0^2`$, degrees of freedom $`\nu`$, maximu
 \qquad i=1,\dots,n.
 ```
 
-3. Let $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$.
+3. 令 $`W_k=\mathrm{diag}(\gamma_1^{(k)},\dots,\gamma_n^{(k)})`$。
 
-4. M step update:
+4. M 步更新
 
 ```math
 \beta_{k+1}=(X^TW_kX)^{-1}X^TW_ky.
 ```
 
-5. Then update:
+5. 再更新
 
 ```math
 \sigma_{k+1}^2
@@ -417,11 +417,11 @@ Given initial values $`\beta_0, \sigma_0^2`$, degrees of freedom $`\nu`$, maximu
 \frac{1}{n+2}(y-X\beta_{k+1})^TW_k(y-X\beta_{k+1}).
 ```
 
-6. If $`\max\!\big(\|\beta_{k+1}-\beta_k\|,\ \left|\sigma_{k+1}^2-\sigma_k^2\right|\big)\lt\varepsilon`$, stop; otherwise set $`k\leftarrow k+1`$ and continue.
+6. 若 $`\max\!\big(\|\beta_{k+1}-\beta_k\|,\ \left|\sigma_{k+1}^2-\sigma_k^2\right|\big)\lt\varepsilon`$，则停止；否则令 $`k\leftarrow k+1`$ 继续迭代。
 
-### 3.7 t Regression MCEM
+### 3.7 t 回归 MCEM
 
-In MCEM, instead of using $`E[z_i\mid y_i]`$ directly, samples are drawn from the conditional distribution:
+在 MCEM 中，不直接使用 $`E[z_i\mid y_i]`$，而是从条件分布抽样：
 
 ```math
 z_i^{(k+1,m)}
@@ -433,7 +433,7 @@ z_i^{(k+1,m)}
 \qquad m=1,\dots,M.
 ```
 
-The conditional expectation is approximated by the sample mean:
+用样本均值近似条件期望：
 
 ```math
 \bar z_i^{(k+1)}
@@ -441,7 +441,7 @@ The conditional expectation is approximated by the sample mean:
 \frac{1}{M}\sum_{m=1}^{M}z_i^{(k+1,m)}.
 ```
 
-Let $`\bar W_k=\mathrm{diag}(\bar z_1^{(k+1)},\dots,\bar z_n^{(k+1)})`$. The approximate Q function is
+令 $`\bar W_k=\mathrm{diag}(\bar z_1^{(k+1)},\dots,\bar z_n^{(k+1)})`$。近似 Q 函数为
 
 ```math
 Q_M(\beta,\sigma^2\mid\beta_k,\sigma_k^2)
@@ -451,7 +451,7 @@ Q_M(\beta,\sigma^2\mid\beta_k,\sigma_k^2)
 \sum_{i=1}^{n}\bar z_i^{(k+1)}(y_i-x_i^T\beta)^2.
 ```
 
-The M step has the same form as in EM:
+M 步与 EM 完全同型：
 
 ```math
 \beta_{k+1}
@@ -466,11 +466,11 @@ The M step has the same form as in EM:
 (y-X\beta_{k+1})^T\bar W_k(y-X\beta_{k+1}).
 ```
 
-### 3.8 t Regression MCEM Algorithm
+### 3.8 t 回归 MCEM 算法流程
 
-Given initial values $`\beta_0, \sigma_0^2`$, degrees of freedom $`\nu`$, Monte Carlo sample size $`M`$, maximum iterations $`K`$, and threshold $`\varepsilon`$:
+给定初始值 $`\beta_0, \sigma_0^2`$、自由度 $`\nu`$、Monte Carlo 样本量 $`M`$、最大迭代次数 $`K`$ 和阈值 $`\varepsilon`$：
 
-1. At each iteration $`k`$, first compute the current conditional distribution parameters:
+1. 对每次迭代 $`k`$，先计算当前条件分布参数
 
 ```math
 a_i^{(k)}=\frac{\nu+1}{2},
@@ -480,7 +480,7 @@ b_i^{(k)}
 \frac{1}{2}\left[\nu+\frac{(y_i-x_i^T\beta_k)^2}{\sigma_k^2}\right].
 ```
 
-2. For each $`i`$, draw
+2. 对每个 $`i`$ 抽取
 
 ```math
 z_i^{(k+1,1)},\dots,z_i^{(k+1,M)}
@@ -488,7 +488,7 @@ z_i^{(k+1,1)},\dots,z_i^{(k+1,M)}
 \mathrm{Gamma}(a_i^{(k)},b_i^{(k)}).
 ```
 
-3. Approximate the E step expectation by the sample mean:
+3. 用样本均值近似 E 步期望：
 
 ```math
 \bar z_i^{(k+1)}
@@ -496,9 +496,9 @@ z_i^{(k+1,1)},\dots,z_i^{(k+1,M)}
 \frac{1}{M}\sum_{m=1}^{M}z_i^{(k+1,m)}.
 ```
 
-4. Form $`\bar W_k=\mathrm{diag}(\bar z_1^{(k+1)},\dots,\bar z_n^{(k+1)})`$.
+4. 构造 $`\bar W_k=\mathrm{diag}(\bar z_1^{(k+1)},\dots,\bar z_n^{(k+1)})`$。
 
-5. Execute the M step, which has the same form as in EM:
+5. 执行与 EM 同型的 M 步：
 
 ```math
 \beta_{k+1}=(X^T\bar W_kX)^{-1}X^T\bar W_ky,
@@ -510,40 +510,40 @@ z_i^{(k+1,1)},\dots,z_i^{(k+1,M)}
 \frac{1}{n+2}(y-X\beta_{k+1})^T\bar W_k(y-X\beta_{k+1}).
 ```
 
-6. Stop based on parameter change or maximum iterations. Because sampling error is present, the MCEM path may not be strictly monotone.
+6. 按参数变化量或最大迭代次数停止。由于采样误差存在，MCEM 的路径可能不严格单调。
 
-## 4. Two-Level Linear Model
+## 4. 两层线性模型
 
-### 4.1 Model Specification
+### 4.1 模型设定
 
-Let group $`j`$ have $`n_j`$ observations:
+设第 $`j`$ 组有 $`n_j`$ 个观测：
 
 ```math
 y_j=X_j\beta_j+\varepsilon_j,\qquad
 \varepsilon_j\sim N(0,\sigma^2I_{n_j}),
 ```
 
-The within-group regression coefficients satisfy the second-level model:
+组内回归系数满足第二层模型：
 
 ```math
 \beta_j=W_j\gamma+\mu_j,\qquad
 \mu_j\sim N(0,D),
 ```
 
-where $`\gamma`$ are fixed effects, $`\mu_j`$ are random effects, and $`D`$ is the random-effects covariance matrix. Substituting:
+其中 $`\gamma`$ 为固定效应，$`\mu_j`$ 为随机效应，$`D`$ 为随机效应协方差矩阵。代入后：
 
 ```math
 y_j=X_jW_j\gamma+X_j\mu_j+\varepsilon_j.
 ```
 
-Define
+记
 
 ```math
 N=\sum_{j=1}^{J}n_j,\qquad
 T=I_J\otimes D.
 ```
 
-together with the block-diagonal design and the stacked second level — writing $`X_j\in\mathbb{R}^{n_j\times(p+1)}`$ ($`p`$ within-group covariates plus an intercept) and the group-level design $`W_j\in\mathbb{R}^{(p+1)\times(p+1)(q+1)}`$ (each of the $`p+1`$ coefficients regressed on $`q+1`$ group-level covariates, so $`\gamma\in\mathbb{R}^{(p+1)(q+1)}`$),
+以及块对角设计与堆叠的二级结构——记 $`X_j\in\mathbb{R}^{n_j\times(p+1)}`$（$`p`$ 个组内协变量加截距）、组级设计 $`W_j\in\mathbb{R}^{(p+1)\times(p+1)(q+1)}`$（$`p+1`$ 个系数各对 $`q+1`$ 个组级协变量回归，故 $`\gamma\in\mathbb{R}^{(p+1)(q+1)}`$），
 
 ```math
 X=\mathrm{diag}(X_1,\dots,X_J)\in\mathbb{R}^{N\times J(p+1)},\quad
@@ -551,7 +551,7 @@ W=\begin{pmatrix}W_1\\\vdots\\W_J\end{pmatrix}\in\mathbb{R}^{J(p+1)\times(p+1)(q
 \mu=\begin{pmatrix}\mu_1\\\vdots\\\mu_J\end{pmatrix}.
 ```
 
-Stacking all groups gives
+将所有组堆叠，有
 
 ```math
 y=XW\gamma+X\mu+\varepsilon,\qquad
@@ -559,16 +559,16 @@ y=XW\gamma+X\mu+\varepsilon,\qquad
 \varepsilon\sim N(0,\sigma^2I_N).
 ```
 
-so the marginal distribution of the observed data is
+因此观测数据边际分布为
 
 ```math
 y\sim N(XW\gamma,V),\qquad
 V=XTX^T+\sigma^2I_N.
 ```
 
-Because $`X`$ and $`T`$ are block-diagonal, so is $`V=\mathrm{diag}(V_1,\dots,V_J)`$ with $`V_j=X_jDX_j^T+\sigma^2 I_{n_j}`$: the groups are independent, so every EM update factorizes group by group.
+由于 $`X`$ 与 $`T`$ 均为块对角，故 $`V=\mathrm{diag}(V_1,\dots,V_J)`$ 亦为块对角，其中 $`V_j=X_jDX_j^T+\sigma^2 I_{n_j}`$：各组相互独立，故每步 EM 更新都按组分解。
 
-The joint distribution of the complete data has the covariance structure given in the revision:
+完全数据联合分布的协方差矩阵为修订稿中的正确形式：
 
 ```math
 \begin{pmatrix} y \\ \mu \end{pmatrix}
@@ -582,18 +582,18 @@ TX^T & T
 ).
 ```
 
-Note that the upper-right block is $`XT`$ and the lower-left block is $`TX^T`$.
+注意右上块是 $`XT`$，左下块是 $`TX^T`$。
 
-### 4.2 Conditional Distribution of the Random Effects
+### 4.2 随机效应条件分布
 
-By the conditional distribution formula for the multivariate normal:
+由多元正态条件分布公式：
 
 ```math
 \mu\mid y,\gamma,D,\sigma^2
 \sim N(\mu^*,V^*),
 ```
 
-where
+其中
 
 ```math
 \mu^*
@@ -607,7 +607,7 @@ V^*
 T-TX^T(XTX^T+\sigma^2I_N)^{-1}XT.
 ```
 
-Using the Woodbury identity, this can be written as
+利用 Woodbury 恒等式可写为
 
 ```math
 \mu^*
@@ -620,7 +620,7 @@ V^*
 \sigma^2(X^TX+\sigma^2T^{-1})^{-1}.
 ```
 
-The equivalence can be verified by the "push-through identity":
+等价性可由"推移恒等式"验证：
 
 ```math
 (X^TX+\sigma^2T^{-1})^{-1}X^T
@@ -628,7 +628,7 @@ The equivalence can be verified by the "push-through identity":
 TX^T(XTX^T+\sigma^2I_N)^{-1},
 ```
 
-Left-multiplying both sides by $`(X^TX+\sigma^2T^{-1})`$ and right-multiplying by $`(XTX^T+\sigma^2I_N)`$ both yield $`X^T(XTX^T+\sigma^2I_N)`$, confirming the identity and the alternative expression for $`\mu^*`$. $`V^*`$ is the right-hand side of the Woodbury identity
+两边分别左乘 $`(X^TX+\sigma^2T^{-1})`$、右乘 $`(XTX^T+\sigma^2I_N)`$ 后都化为 $`X^T(XTX^T+\sigma^2I_N)`$，故恒等式成立，由此得 $`\mu^*`$ 的第二种写法。$`V^*`$ 则是 Woodbury 恒等式
 
 ```math
 (T^{-1}+\sigma^{-2}X^TX)^{-1}
@@ -636,14 +636,14 @@ Left-multiplying both sides by $`(X^TX+\sigma^2T^{-1})`$ and right-multiplying b
 T-TX^T(XTX^T+\sigma^2I_N)^{-1}XT
 ```
 
-and $`(T^{-1}+\sigma^{-2}X^TX)^{-1}=\sigma^2(X^TX+\sigma^2T^{-1})^{-1}`$. Since the groups are independent, the conditional distribution for group $`j`$ is
+的右端，且 $`(T^{-1}+\sigma^{-2}X^TX)^{-1}=\sigma^2(X^TX+\sigma^2T^{-1})^{-1}`$。由于各组独立，第 $`j`$ 组条件分布可写为
 
 ```math
 \mu_j\mid y_j,\gamma,D,\sigma^2
 \sim N(m_j,V_j^*),
 ```
 
-where
+其中
 
 ```math
 m_j
@@ -658,9 +658,9 @@ V_j^*
 \sigma^2(X_j^TX_j+\sigma^2D^{-1})^{-1}.
 ```
 
-### 4.3 Complete-Data Log-Likelihood
+### 4.3 完全数据对数似然
 
-Using the flat prior $`\pi(\gamma,D,\sigma^2)\propto 1`$, MAP and MLE coincide, and EM maximizes the marginal observed-data log-likelihood $`\log p(y \mid \gamma, D, \sigma^2)`$. The parameter-dependent part of the complete-data log-likelihood is
+采用平坦先验 $`\pi(\gamma,D,\sigma^2)\propto 1`$。此时 MAP 与 MLE 一致，EM 极大化的是观测数据边际对数似然 $`\log p(y \mid \gamma, D, \sigma^2)`$。完全数据对数似然中与参数有关的部分为
 
 ```math
 \ell_c(\gamma,D,\sigma^2\mid y,\mu)
@@ -674,11 +674,11 @@ Using the flat prior $`\pi(\gamma,D,\sigma^2)\propto 1`$, MAP and MLE coincide, 
 \sum_{j=1}^{J}\mu_j^TD^{-1}\mu_j.
 ```
 
-The coefficient of $`\log|D|`$ is $`-J/2`$, corresponding to the divisor $`J`$ in the $`D`$ update of the revision.
+这里 $`\log|D|`$ 的系数是 $`-J/2`$，对应修订稿中的 $`D`$ 更新除数 $`J`$。
 
-### 4.4 E Step of the Two-Level Model EM
+### 4.4 两层模型 EM 的 E 步
 
-At iteration $`k`$, using current estimates $`\gamma_k, D_k, \sigma_k^2`$, compute
+在第 $`k`$ 次迭代，使用当前估计 $`\gamma_k, D_k, \sigma_k^2`$ 计算
 
 ```math
 m_{jk}
@@ -693,7 +693,7 @@ V_{jk}
 \sigma_k^2(X_j^TX_j+\sigma_k^2D_k^{-1})^{-1}.
 ```
 
-Two conditional expectations are needed:
+需要用到两个条件期望：
 
 ```math
 E[\mu_j\mid y,\theta_k]=m_{jk},
@@ -704,7 +704,7 @@ E[\mu_j\mu_j^T\mid y,\theta_k]
 =m_{jk}m_{jk}^T+V_{jk}.
 ```
 
-Also,
+同时
 
 ```math
 E[
@@ -716,7 +716,7 @@ E[
 +\mathrm{tr}(X_jV_{jk}X_j^T).
 ```
 
-Therefore
+因此
 
 ```math
 Q(\gamma,D,\sigma^2\mid\theta_k)
@@ -740,18 +740,18 @@ m_{jk}^TD^{-1}m_{jk}
 ].
 ```
 
-### 4.5 M Step of the Two-Level Model EM
+### 4.5 两层模型 EM 的 M 步
 
-#### 4.5.1 Fixed Effects $`\gamma`$
+#### 4.5.1 固定效应 $`\gamma`$
 
-Retaining the terms involving $`\gamma`$:
+保留与 $`\gamma`$ 有关的项：
 
 ```math
 \sum_{j=1}^{J}
 \| y_j-X_jW_j\gamma-X_jm_{jk}\|^2.
 ```
 
-Taking the partial derivative with respect to $`\gamma`$ and setting it to zero:
+对 $`\gamma`$ 求偏导并令其为零：
 
 ```math
 \sum_{j=1}^{J}
@@ -759,7 +759,7 @@ W_j^TX_j^T(y_j-X_jW_j\gamma-X_jm_{jk})
 =0.
 ```
 
-This gives the strict EM update:
+得到严格 EM 更新：
 
 ```math
 \gamma_{k+1}
@@ -768,14 +768,14 @@ This gives the strict EM update:
 \sum_{j=1}^{J}W_j^TX_j^T(y_j-X_jm_{jk}).
 ```
 
-The revision and code use the closed-form marginal GLS update as the actual update for $`\gamma`$. Let
+修订稿与代码采用边际 GLS 闭式更新作为 $`\gamma`$ 的实际更新方式。令
 
 ```math
 \hat\beta_j^{OLS}
 =(X_j^TX_j)^{-1}X_j^Ty_j,
 ```
 
-Then under the marginal model,
+则在边际模型下
 
 ```math
 \hat\beta_j^{OLS}
@@ -785,7 +785,7 @@ N(W_j\gamma,\Lambda_j),
 \Lambda_j=D+\sigma^2(X_j^TX_j)^{-1}.
 ```
 
-Given $`D_k, \sigma_k^2`$, the GLS update for $`\gamma`$ is
+给定 $`D_k, \sigma_k^2`$，对 $`\gamma`$ 作 GLS 得
 
 ```math
 \gamma_{k+1}
@@ -794,9 +794,9 @@ Given $`D_k, \sigma_k^2`$, the GLS update for $`\gamma`$ is
 \sum_{j=1}^{J}W_j^T\Lambda_{jk}^{-1}\hat\beta_j^{OLS},
 ```
 
-where $`\Lambda_{jk}=D_k+\sigma_k^2(X_j^TX_j)^{-1}`$. This formula is the conditional marginal MLE for $`\gamma`$ given $`D, \sigma^2`$; it agrees with the strict EM $`\gamma`$ update at convergence and substantially accelerates computation in the two-level model.
+其中 $`\Lambda_{jk}=D_k+\sigma_k^2(X_j^TX_j)^{-1}`$。该公式是给定 $`D, \sigma^2`$ 时 $`\gamma`$ 的边际极大似然估计；它与严格 EM 的 $`\gamma`$ 更新在收敛点一致，并显著加快两层模型的计算。
 
-**Why the group-level GLS equals the full-sample marginal MLE.** Under the marginal model $`y_j \sim N(X_jW_j\gamma, V_j)`$ with $`V_j=X_jDX_j^T+\sigma^2 I_{n_j}`$, the full-sample GLS (i.e., marginal MLE) for $`\gamma`$ is
+**为何组级 GLS 等于全样本边际 MLE。** 在边际模型 $`y_j \sim N(X_jW_j\gamma, V_j)`$ 且 $`V_j=X_jDX_j^T+\sigma^2 I_{n_j}`$ 下，$`\gamma`$ 的全样本 GLS（即边际 MLE）为
 
 ```math
 \gamma
@@ -805,7 +805,7 @@ where $`\Lambda_{jk}=D_k+\sigma_k^2(X_j^TX_j)^{-1}`$. This formula is the condit
 \sum_{j}W_j^TX_j^TV_j^{-1}y_j.
 ```
 
-Define
+记
 
 ```math
 \Lambda_j=D+\sigma^2(X_j^TX_j)^{-1},
@@ -813,7 +813,7 @@ Define
 H_j=X_j(X_j^TX_j)^{-1}X_j^T
 ```
 
-A Woodbury expansion of $`V_j^{-1}`$ proves the two identities
+由 Woodbury 展开 $`V_j^{-1}`$ 可证两条恒等式
 
 ```math
 X_j^TV_j^{-1}X_j=\Lambda_j^{-1},
@@ -821,18 +821,18 @@ X_j^TV_j^{-1}X_j=\Lambda_j^{-1},
 X_j^TV_j^{-1}y_j=\Lambda_j^{-1}\hat\beta_j^{OLS},
 ```
 
-the latter using the projection property $`X_j^TV_j^{-1}(I-H_j)=0`$ (since $`X_j^T(I-H_j)=0`$). Substituting immediately yields the GLS form in terms of $`\hat\beta_j^{OLS}`$. Thus "applying GLS to the group-level OLS estimates" is fully equivalent to "applying GLS to the individual observations," and both equal the conditional marginal MLE for $`\gamma`$ given $`(D,\sigma^2)`$; since EM as a whole converges to a stationary point of the marginal likelihood where the $`\gamma`$ component is that conditional MLE, both updates agree at convergence.
+后者用到投影性质 $`X_j^TV_j^{-1}(I-H_j)=0`$（因 $`X_j^T(I-H_j)=0`$）。代入即得上面对 $`\hat\beta_j^{OLS}`$ 的 GLS 形式。故"对组级 OLS 估计做 GLS"与"对个体数据做 GLS"完全等价，二者都等于给定 $`(D,\sigma^2)`$ 时 $`\gamma`$ 的边际 MLE；而 EM 整体收敛到边际似然的稳定点时，其 $`\gamma`$ 分量恰为该条件 MLE，故两种更新在收敛点一致。
 
-#### 4.5.2 Random-Effects Covariance $`D`$
+#### 4.5.2 随机效应协方差 $`D`$
 
-Let $`S_{jk}=m_{jk}m_{jk}^T+V_{jk}`$. Retaining the terms involving $`D`$:
+记 $`S_{jk}=m_{jk}m_{jk}^T+V_{jk}`$。保留与 $`D`$ 有关的项：
 
 ```math
 -\frac{J}{2}\log|D|
 -\frac{1}{2}\sum_{j=1}^{J}\mathrm{tr}(D^{-1}S_{jk}).
 ```
 
-Using matrix calculus:
+使用矩阵求导：
 
 ```math
 \frac{\partial}{\partial D}\log|D|=D^{-1},
@@ -843,7 +843,7 @@ Using matrix calculus:
 =-D^{-1}SD^{-1}.
 ```
 
-Setting the partial derivative to zero:
+令偏导为零：
 
 ```math
 -\frac{J}{2}D^{-1}
@@ -851,7 +851,7 @@ Setting the partial derivative to zero:
 =0.
 ```
 
-Multiplying both sides by $`D`$ gives $`JD=\sum_{j=1}^{J}S_{jk}`$. Therefore (ML update)
+左右同乘 $`D`$，得 $`JD=\sum_{j=1}^{J}S_{jk}`$。因此（ML 更新）
 
 ```math
 D_{k+1}^{\mathrm{ML}}
@@ -861,9 +861,9 @@ D_{k+1}^{\mathrm{ML}}
 (m_{jk}m_{jk}^T+V_{jk}).
 ```
 
-**Small-sample downward bias of ML and the REML correction.** The formula above treats $`\gamma`$ as known (substituting its estimate $`\hat\gamma`$). But since $`\hat\gamma`$ is estimated from the data, it "absorbs" part of the between-group variation, making the spread of $`m_{jk}`$ around $`W_j\hat\gamma`$ smaller and causing $`D_{k+1}^{\mathrm{ML}}`$ to systematically underestimate $`D`$. The magnitude is approximately $`(J-(q+1))/J`$ (the mean of each random-effect component is fitted by $`q+1`$ group-level coefficients); the bias is especially pronounced when the number of groups $`J`$ is small ($`J=20`$, $`q=3`$ gives a factor of $`\approx0.8`$, i.e., about 20% underestimation).
+**ML 的小样本向下偏与 REML 校正。** 上式把 $`\gamma`$ 当作已知（用其估计 $`\hat\gamma`$ 代入）。但 $`\hat\gamma`$ 由数据估计，会"吸收"一部分组间变异，使 $`m_{jk}`$ 围绕 $`W_j\hat\gamma`$ 的离散度偏小，从而 $`D_{k+1}^{\mathrm{ML}}`$ 系统性低估 $`D`$。其量级约为 $`(J-(q+1))/J`$（每个随机效应分量由 $`q+1`$ 个组级系数拟合均值），组数 $`J`$ 较小时尤为明显（$`J=20`$、$`q=3`$ 时因子 $`\approx0.8`$，即低估约 20%）。
 
-REML eliminates this bias by propagating the uncertainty in $`\hat\gamma`$ back into the random effects. Let the covariance of $`\hat\gamma`$ under marginal GLS be
+REML 通过把 $`\hat\gamma`$ 的不确定性传播回随机效应来消除该偏。记边际 GLS 下 $`\hat\gamma`$ 的协方差
 
 ```math
 C=\Big(\sum_{j=1}^{J}W_j^T\Lambda_j^{-1}W_j\Big)^{-1},
@@ -871,7 +871,7 @@ C=\Big(\sum_{j=1}^{J}W_j^T\Lambda_j^{-1}W_j\Big)^{-1},
 \Lambda_j=D+\sigma^2(X_j^TX_j)^{-1},
 ```
 
-From $`\hat\mu_j=DX_j^TV_j^{-1}(y_j-X_jW_j\hat\gamma)`$ we get $`\partial\hat\mu_j/\partial\hat\gamma=-DX_j^TV_j^{-1}X_jW_j=-D\Lambda_j^{-1}W_j=:-B_j`$ (using the identity $`X_j^TV_j^{-1}X_j=\Lambda_j^{-1}`$, see §4.5.1), so $`E[\mu_j\mu_j^T]`$ contains an additional term $`B_jCB_j^T`$. The REML update is
+由 $`\hat\mu_j=DX_j^TV_j^{-1}(y_j-X_jW_j\hat\gamma)`$ 得 $`\partial\hat\mu_j/\partial\hat\gamma=-DX_j^TV_j^{-1}X_jW_j=-D\Lambda_j^{-1}W_j=:-B_j`$（用到恒等式 $`X_j^TV_j^{-1}X_j=\Lambda_j^{-1}`$，见 §4.5.1），故 $`E[\mu_j\mu_j^T]`$ 额外含 $`B_jCB_j^T`$。REML 更新为
 
 ```math
 D_{k+1}^{\mathrm{REML}}
@@ -883,13 +883,13 @@ D_{k+1}^{\mathrm{REML}}
 B_{jk}=D_k\Lambda_{jk}^{-1}W_j.
 ```
 
-This update makes $`\hat D`$ approximately unbiased for any number of groups $`J`$; the corresponding monotonically non-decreasing objective changes from the observed-data marginal log-likelihood to the **restricted log-likelihood** $`\ell_R=\ell_{\mathrm{ML}}(\hat\gamma)+\tfrac12\log|C|+\tfrac{p_\gamma}{2}\log(2\pi)`$, $`p_\gamma=(p+1)(q+1)`$ (returned by `get_loglik` under REML; the additive $`\tfrac{p_\gamma}{2}\log(2\pi)`$ is the standard Harville constant from integrating out the fixed effects). Equivalently, using the REML projection matrix: $`D_{k+1}=\frac1J\sum_j\big(m_{jk}m_{jk}^T+D_k-D_kX_j^TP_{jj}X_jD_k\big)`$, where $`P=V^{-1}-V^{-1}(XW)C(XW)^TV^{-1}`$ and $`P_{jj}`$ is the $`n_j\times n_j`$ diagonal block of $`P`$ for group $`j`$.
+该更新在任意组数 $`J`$ 下都使 $`\hat D`$ 基本无偏；其单调不减的目标量相应地由观测数据边际对数似然改为**限制对数似然** $`\ell_R=\ell_{\mathrm{ML}}(\hat\gamma)+\tfrac12\log|C|+\tfrac{p_\gamma}{2}\log(2\pi)`$、$`p_\gamma=(p+1)(q+1)`$（`get_loglik` 在 REML 下返回该量；附加的 $`\tfrac{p_\gamma}{2}\log(2\pi)`$ 即积掉固定效应得到的标准 Harville 常数）。等价地，可用 REML 投影矩阵写为 $`D_{k+1}=\frac1J\sum_j\big(m_{jk}m_{jk}^T+D_k-D_kX_j^TP_{jj}X_jD_k\big)`$，其中 $`P=V^{-1}-V^{-1}(XW)C(XW)^TV^{-1}`$，$`P_{jj}`$ 为 $`P`$ 对应第 $`j`$ 组的 $`n_j\times n_j`$ 对角块。
 
-> **Code switch.** The implementation toggles REML via the global option `options(hlm_reml=TRUE)` (enabled only in the simulation driver for this chapter); the default `FALSE` uses the ML update above. The empirical analysis of Chapter 5 (§7.2) keeps ML to match `lme4` ML results digit-for-digit. Under MCEM, samples are drawn from the inflated covariance $`N(m_{jk},\,V_{jk}+B_{jk}C_kB_{jk}^T)`$ so that the sample second moment matches $`D_{k+1}^{\mathrm{REML}}`$.
+> **代码开关。** 实现用全局选项 `options(hlm_reml=TRUE)` 切换 REML（仅本章模拟驱动开启）；默认 `FALSE` 即上面的 ML 更新。第 5 章实证（§7.2）保持 ML，以与 `lme4` 的 ML 结果逐位对照。MCEM 下则改为从膨胀协方差 $`N(m_{jk},\,V_{jk}+B_{jk}C_kB_{jk}^T)`$ 抽样，使样本二阶矩匹配 $`D_{k+1}^{\mathrm{REML}}`$。
 
-#### 4.5.3 Level-1 Error Variance $`\sigma^2`$
+#### 4.5.3 一级误差方差 $`\sigma^2`$
 
-Retaining the terms involving $`\sigma^2`$:
+保留与 $`\sigma^2`$ 有关的项：
 
 ```math
 -\frac{N}{2}\log\sigma^2
@@ -901,7 +901,7 @@ Retaining the terms involving $`\sigma^2`$:
 ].
 ```
 
-Define
+记
 
 ```math
 R_k(\gamma)
@@ -913,7 +913,7 @@ R_k(\gamma)
 ].
 ```
 
-The relevant terms are $`-\frac{N}{2}\log\sigma^2-\frac{R_k(\gamma)}{2\sigma^2}`$. Taking the partial derivative with respect to $`\sigma^2`$:
+则相关项为 $`-\frac{N}{2}\log\sigma^2-\frac{R_k(\gamma)}{2\sigma^2}`$。对 $`\sigma^2`$ 求偏导：
 
 ```math
 \frac{\partial Q}{\partial\sigma^2}
@@ -922,7 +922,7 @@ The relevant terms are $`-\frac{N}{2}\log\sigma^2-\frac{R_k(\gamma)}{2\sigma^2}`
 +\frac{R_k(\gamma)}{2(\sigma^2)^2}.
 ```
 
-Setting it to zero gives $`N\sigma^2=R_k(\gamma)`$. Substituting the updated $`\gamma_{k+1}`$:
+令其为零，得 $`N\sigma^2=R_k(\gamma)`$。代入更新后的 $`\gamma_{k+1}`$：
 
 ```math
 \sigma_{k+1}^2
@@ -935,21 +935,21 @@ Setting it to zero gives $`N\sigma^2=R_k(\gamma)`$. Substituting the updated $`\
 ].
 ```
 
-> **REML correction for $`\sigma^2`$.** The uncertainty in $`\hat\gamma`$ that inflates the $`D`$ update (§4.5.2) also enters the residual sum of squares. The group residual at the posterior mean, $`r_j=(I-X_jDX_j^TV_j^{-1})(y_j-X_jW_j\hat\gamma)`$, satisfies $`\partial r_j/\partial\hat\gamma=-A_j`$ with $`A_j=X_jW_j-X_jD\Lambda_j^{-1}W_j`$ (the same $`D`$ appears in both the standalone factor and in $`\Lambda_j=D+\sigma^2(X_j^TX_j)^{-1}`$, since both arise from the single $`V_j=X_jDX_j^T+\sigma^2 I`$), so REML adds $`\sum_j\mathrm{tr}(A_jCA_j^T)`$ to $`R_k`$. **Unlike the $`D`$-update (§4.5.2), which evaluates its REML pieces at the pre-update $`D_k`$, this $`\sigma^2`$ block follows the multicycle-ECM refresh of §4.6 (step 4) and evaluates $`A_{jk}`$ and the GLS covariance at the just-updated $`D_{k+1}`$** — define $`\Lambda_{j,k+1}=D_{k+1}+\sigma_k^2(X_j^TX_j)^{-1}`$ and $`C_{k+1}=(\sum_{j=1}^{J}W_j^T\Lambda_{j,k+1}^{-1}W_j)^{-1}`$, so that
+> **$`\sigma^2`$ 的 REML 校正。** 使 $`D`$ 更新膨胀的 $`\hat\gamma`$ 不确定性（§4.5.2）同样进入残差平方和。后验均值处的组残差 $`r_j=(I-X_jDX_j^TV_j^{-1})(y_j-X_jW_j\hat\gamma)`$ 满足 $`\partial r_j/\partial\hat\gamma=-A_j`$，其中 $`A_j=X_jW_j-X_jD\Lambda_j^{-1}W_j`$（同一个 $`D`$ 同时出现在独立因子与 $`\Lambda_j=D+\sigma^2(X_j^TX_j)^{-1}`$ 中，因为二者都来自同一 $`V_j=X_jDX_j^T+\sigma^2 I`$），故 REML 在 $`R_k`$ 上加 $`\sum_j\mathrm{tr}(A_jCA_j^T)`$。**与 $`D`$ 更新（§4.5.2）在更新前的 $`D_k`$ 处评价 REML 量不同，本 $`\sigma^2`$ 块遵循 §4.6（步骤 4）的 multicycle-ECM 刷新，在刚更新的 $`D_{k+1}`$ 处评价 $`A_{jk}`$ 与 GLS 协方差**——令 $`\Lambda_{j,k+1}=D_{k+1}+\sigma_k^2(X_j^TX_j)^{-1}`$、$`C_{k+1}=(\sum_{j=1}^{J}W_j^T\Lambda_{j,k+1}^{-1}W_j)^{-1}`$，于是
 > ```math
 > \sigma_{k+1}^{2,\mathrm{REML}}
 > =\frac{1}{N}\Big(R_k(\gamma_{k+1})+\sum_{j=1}^{J}\mathrm{tr}(A_{jk}\,C_{k+1}\,A_{jk}^T)\Big),
 > \qquad A_{jk}=X_jW_j-X_jD_{k+1}\Lambda_{j,k+1}^{-1}W_j.
 > ```
-> (This matches the code's `get_reml_pieces(data, D_{k+1}, \sigma_k^2)` in `em_update_sigma2`, where both the standalone $`D_{k+1}`$ factor and the $`\Lambda^{-1}`$/$`C`$ pieces use the updated $`D_{k+1}`$ uniformly; the two indices coincide only at the fixed point $`D_k=D_{k+1}`$.) This is the special case (fixed design $`X_jW_j`$, random design $`X_j`$) of the general LMM $`\sigma^2`$ REML correction in §5, and makes the hand-coded REML $`\hat\sigma^2`$ match `lme4(REML=TRUE)` to machine precision; under ML the term vanishes and the divisor stays $`N`$. Under MCEM it is added explicitly while the $`\sigma^2`$ samples keep the ML covariance, avoiding double counting.
+> （这与代码 `em_update_sigma2` 中的 `get_reml_pieces(data, D_{k+1}, \sigma_k^2)` 一致：独立的 $`D_{k+1}`$ 因子与 $`\Lambda^{-1}`$/$`C`$ 量都统一用更新后的 $`D_{k+1}`$；两个下标仅在不动点 $`D_k=D_{k+1}`$ 处重合。）这是一般 LMM（§5）$`\sigma^2`$ REML 校正在"固定设计 $`X_jW_j`$、随机设计 $`X_j`$"下的特例，使手写 REML 的 $`\hat\sigma^2`$ 与 `lme4(REML=TRUE)` 吻合到机器精度；ML 下该项消失、除数仍为 $`N`$。MCEM 下 $`\sigma^2`$ 样本仍用 ML 协方差、该项显式加入，避免重复计数。
 
-### 4.6 Two-Level Model EM Algorithm
+### 4.6 两层模型 EM 算法流程
 
-> **Relationship between the §4.5 derivation and the implementation (multicycle-ECM).** §4.5 presents the textbook EM derivation: construct $`Q`$ once at $`\theta_k`$ and then simultaneously maximize over $`(\gamma, D, \sigma^2)`$. This section (and the code `two-level-model/utils.R`) actually follows the **multicycle-ECM** (Meng & Rubin, 1993) order — $`\gamma`$ is solved analytically in one step via marginal GLS (the ECME step), and after each parameter-block update the E step is **refreshed**: use $`\gamma_{k+1}`$ to recompute conditional expectations before updating $`D`$, then use $`(\gamma_{k+1}, D_{k+1})`$ to recompute conditional expectations before updating $`\sigma^2`$. Each conditional maximization step does not decrease the marginal observed-data log-likelihood, so this order shares the same fixed points as standard EM. The procedure below corresponds exactly to the code implementation.
+> **§4.5 推导与本节实现的关系（multicycle-ECM）。** §4.5 是教科书式 EM 的推导：在 $`\theta_k`$ 处一次性构造 $`Q`$，再对 $`(\gamma, D, \sigma^2)`$ 同时极大化。本节（以及代码 `two-level-model/utils.R`）实际采用 **multicycle-ECM**（Meng & Rubin, 1993）次序——把 $`\gamma`$ 用边际 GLS 一步求解（ECME 步），并在每个参数块更新后**刷新 E 步**：用 $`\gamma_{k+1}`$ 重算条件期望再更新 $`D`$，再用 $`(\gamma_{k+1}, D_{k+1})`$ 重算条件期望再更新 $`\sigma^2`$。每个条件极大化步都不减观测数据边际对数似然，故与标准 EM 共享同一组不动点。下面的流程严格对应代码实现。
 
-Given initial values $`\gamma_0, D_0, \sigma_0^2`$, maximum iterations $`K`$, and convergence threshold $`\varepsilon`$, repeat for $`k=0,1,2,\dots`$:
+给定初始值 $`\gamma_0, D_0, \sigma_0^2`$、最大迭代次数 $`K`$ 和收敛阈值 $`\varepsilon`$，对 $`k=0,1,2,\dots`$ 重复：
 
-1. E step: for each group $`j=1,\dots,J`$, compute the conditional mean and conditional covariance of the random effects using the current $`(\gamma_k, D_k, \sigma_k^2)`$:
+1. E 步：对每个组 $`j=1,\dots,J`$，按当前 $`(\gamma_k, D_k, \sigma_k^2)`$ 计算随机效应条件均值与条件协方差：
 
 ```math
 m_{jk}
@@ -964,7 +964,7 @@ V_{jk}
 \sigma_k^2(X_j^TX_j+\sigma_k^2D_k^{-1})^{-1}.
 ```
 
-2. M step — fixed effects (marginal GLS / ECME step, independent of the posterior). Let
+2. M 步 — 固定效应（边际 GLS / ECME 步，不依赖后验）。令
 
 ```math
 \hat\beta_j^{OLS}=(X_j^TX_j)^{-1}X_j^Ty_j,
@@ -972,7 +972,7 @@ V_{jk}
 \Lambda_{jk}=D_k+\sigma_k^2(X_j^TX_j)^{-1},
 ```
 
-and update
+并更新
 
 ```math
 \gamma_{k+1}
@@ -981,7 +981,7 @@ and update
 \sum_{j=1}^{J}W_j^T\Lambda_{jk}^{-1}\hat\beta_j^{OLS}.
 ```
 
-3. Refresh E step and update $`D`$: use the new $`\gamma_{k+1}`$ (still with $`D_k, \sigma_k^2`$) to recompute the conditional mean:
+3. 刷新 E 步并更新 $`D`$：用新的 $`\gamma_{k+1}`$（仍用 $`D_k, \sigma_k^2`$）重算条件均值
 
 ```math
 m'_{jk}
@@ -990,7 +990,7 @@ m'_{jk}
 X_j^T(y_j-X_jW_j\gamma_{k+1}),
 ```
 
-$`V_{jk}`$ does not depend on $`\gamma`$ and therefore remains unchanged, so
+$`V_{jk}`$ 不依赖 $`\gamma`$，故保持不变，于是
 
 ```math
 D_{k+1}
@@ -998,7 +998,7 @@ D_{k+1}
 \frac{1}{J}\sum_{j=1}^{J}(m'_{jk}m_{jk}^{\prime T}+V_{jk}).
 ```
 
-4. Refresh E step again and update $`\sigma^2`$: use $`\gamma_{k+1}`$ together with the **already-updated $`D_{k+1}`$** ($`\sigma_k^2`$ unchanged) to recompute
+4. 再次刷新 E 步并更新 $`\sigma^2`$：用 $`\gamma_{k+1}`$ 与**已更新的 $`D_{k+1}`$**（$`\sigma_k^2`$ 不变）重算
 
 ```math
 m''_{jk}
@@ -1011,7 +1011,7 @@ V'_{jk}
 \sigma_k^2(X_j^TX_j+\sigma_k^2D_{k+1}^{-1})^{-1},
 ```
 
-so that
+于是
 
 ```math
 \sigma_{k+1}^2
@@ -1024,13 +1024,13 @@ so that
 ].
 ```
 
-5. If the changes in $`\gamma, D, \sigma^2`$ all fall below the threshold $`\varepsilon`$, stop.
+5. 若 $`\gamma, D, \sigma^2`$ 的变化量均低于阈值 $`\varepsilon`$，则停止。
 
-> Note: the "refresh" of the conditional moments in steps 3 and 4 is what characterizes multicycle-ECM. If instead the $`m_{jk}, V_{jk}`$ from step 1 (based on $`(\gamma_k, D_k)`$) were reused throughout (i.e., a one-shot E step as in §4.5), the algorithm degenerates to standard EM; both versions share the same fixed points.
+> 说明：第 3、4 步对条件矩的"刷新"即 multicycle-ECM 的体现。若改为始终复用第 1 步基于 $`(\gamma_k, D_k)`$ 的 $`m_{jk}, V_{jk}`$（即 §4.5 的一次性 E 步），则退化为标准 EM；两者不动点相同。
 
-### 4.7 Two-Level Model MCEM
+### 4.7 两层模型 MCEM
 
-In MCEM, samples are drawn from the conditional distribution given at iteration $`k`$:
+在 MCEM 中，从第 $`k`$ 次迭代给出的条件分布抽样：
 
 ```math
 \mu_j^{(k+1,m)}
@@ -1040,9 +1040,9 @@ N(m_{jk},V_{jk}),
 m=1,\dots,M.
 ```
 
-> As in §4.6, the actual implementation follows the **multicycle-ECM** order rather than drawing one sample set and reusing it: $`\gamma`$ is updated first by closed-form GLS, then $`\mu`$ is sampled at the refreshed mean $`m'_{jk}`$ (using $`\gamma_{k+1}`$) before the $`D`$ update and **resampled** at $`m''_{jk}`$ (using $`\gamma_{k+1}, D_{k+1}`$) before the $`\sigma^2`$ update; §4.8 states the exact order. The one-shot draw at $`m_{jk}`$ shown here shares the same fixed points and is used for notational simplicity.
+> 与 §4.6 一致，实际实现采用 **multicycle-ECM** 次序，而非抽一组样本反复使用：先用闭式 GLS 更新 $`\gamma`$，再在刷新均值 $`m'_{jk}`$（用 $`\gamma_{k+1}`$）处抽样以更新 $`D`$，然后在 $`m''_{jk}`$（用 $`\gamma_{k+1}, D_{k+1}`$）处**重抽样**以更新 $`\sigma^2`$；确切次序见 §4.8。此处在 $`m_{jk}`$ 处一次抽样的写法与之共享同一组不动点，仅为记号简洁。
 
-The Monte Carlo approximation to the Q function is
+Monte Carlo 近似的 Q 函数为
 
 ```math
 Q_M(\gamma,D,\sigma^2\mid\theta_k)
@@ -1061,9 +1061,9 @@ Q_M(\gamma,D,\sigma^2\mid\theta_k)
 ].
 ```
 
-#### 4.7.1 Update for $`\gamma`$
+#### 4.7.1 $`\gamma`$ 更新
 
-As in the revision, since the marginal M step for $`\gamma`$ can be solved analytically, MCEM still uses the closed-form GLS update:
+按修订稿，因 $`\gamma`$ 的边际 M 步可解析求解，MCEM 中仍使用 GLS 闭式更新：
 
 ```math
 \gamma_{k+1}
@@ -1076,11 +1076,11 @@ As in the revision, since the marginal M step for $`\gamma`$ can be solved analy
 \Lambda_{jk}=D_k+\sigma_k^2(X_j^TX_j)^{-1}.
 ```
 
-Therefore Monte Carlo error does not enter the analytical update for $`\gamma`$; it primarily affects $`D`$ and $`\sigma^2`$.
+因此 Monte Carlo 误差不进入 $`\gamma`$ 的解析更新，主要影响 $`D`$ 与 $`\sigma^2`$。
 
-#### 4.7.2 Update for $`D`$
+#### 4.7.2 $`D`$ 更新
 
-Retaining the terms involving $`D`$:
+保留与 $`D`$ 有关的部分：
 
 ```math
 -\frac{J}{2}\log|D|
@@ -1089,7 +1089,7 @@ Retaining the terms involving $`D`$:
 (\mu_j^{(k+1,m)})^TD^{-1}\mu_j^{(k+1,m)}.
 ```
 
-Taking the derivative and setting it to zero:
+求导并令零：
 
 ```math
 -\frac{J}{2}D^{-1}
@@ -1099,7 +1099,7 @@ D^{-1}\mu_j^{(k+1,m)}(\mu_j^{(k+1,m)})^TD^{-1}
 =0.
 ```
 
-yielding
+得到
 
 ```math
 D_{k+1}
@@ -1109,9 +1109,9 @@ D_{k+1}
 \mu_j^{(k+1,m)}(\mu_j^{(k+1,m)})^T.
 ```
 
-#### 4.7.3 Update for $`\sigma^2`$
+#### 4.7.3 $`\sigma^2`$ 更新
 
-Retaining the terms involving $`\sigma^2`$. Define
+保留与 $`\sigma^2`$ 有关的部分。记
 
 ```math
 R_M(\gamma)
@@ -1120,7 +1120,7 @@ R_M(\gamma)
 \| y_j-X_jW_j\gamma-X_j\mu_j^{(k+1,m)}\|^2.
 ```
 
-The relevant terms are $`-\frac{N}{2}\log\sigma^2-\frac{R_M(\gamma)}{2M\sigma^2}`$. Taking the partial derivative with respect to $`\sigma^2`$ and setting it to zero:
+则相关项为 $`-\frac{N}{2}\log\sigma^2-\frac{R_M(\gamma)}{2M\sigma^2}`$。对 $`\sigma^2`$ 求偏导并令零：
 
 ```math
 -\frac{N}{2\sigma^2}
@@ -1128,7 +1128,7 @@ The relevant terms are $`-\frac{N}{2}\log\sigma^2-\frac{R_M(\gamma)}{2M\sigma^2}
 =0,
 ```
 
-i.e., $`MN\sigma^2=R_M(\gamma)`$. Substituting $`\gamma_{k+1}`$:
+即 $`MN\sigma^2=R_M(\gamma)`$。代入 $`\gamma_{k+1}`$：
 
 ```math
 \sigma_{k+1}^2
@@ -1138,11 +1138,11 @@ i.e., $`MN\sigma^2=R_M(\gamma)`$. Substituting $`\gamma_{k+1}`$:
 \| y_j-X_jW_j\gamma_{k+1}-X_j\mu_j^{(k+1,m)}\|^2.
 ```
 
-### 4.8 Two-Level Model MCEM Algorithm
+### 4.8 两层模型 MCEM 算法流程
 
-The structure mirrors the EM procedure of §4.6; the implementation also follows the multicycle-ECM order — $`\gamma`$ is updated analytically first, and before each variance-component update the samples are **redrawn** using the latest parameters. Given initial values $`\gamma_0, D_0, \sigma_0^2`$, sample size $`M`$, maximum iterations $`K`$, and threshold $`\varepsilon`$, repeat for $`k=0,1,2,\dots`$:
+与 §4.6 的 EM 流程同构，实现同样按 multicycle-ECM 次序——$`\gamma`$ 先解析更新，其后每更新一个方差分量都用最新参数**重新抽样**。给定初始值 $`\gamma_0, D_0, \sigma_0^2`$、采样量 $`M`$、最大迭代次数 $`K`$ 和阈值 $`\varepsilon`$，对 $`k=0,1,2,\dots`$ 重复：
 
-1. M step — fixed effects (closed-form marginal GLS, no sampling needed):
+1. M 步 — 固定效应（边际 GLS 闭式，无需采样）：
 
 ```math
 \gamma_{k+1}
@@ -1151,7 +1151,7 @@ The structure mirrors the EM procedure of §4.6; the implementation also follows
 \sum_{j=1}^{J}W_j^T\Lambda_{jk}^{-1}\hat\beta_j^{OLS}.
 ```
 
-2. Under $`(\gamma_{k+1}, D_k, \sigma_k^2)`$, draw $`M`$ random-effect samples per group $`\mu_j^{(m)}\sim N(m'_{jk}, V_{jk})`$ ($`m'_{jk}`$ is the conditional mean from step 3 of §4.6), and update $`D`$:
+2. 在 $`(\gamma_{k+1}, D_k, \sigma_k^2)`$ 下对每组抽 $`M`$ 个随机效应样本 $`\mu_j^{(m)}\sim N(m'_{jk}, V_{jk})`$（$`m'_{jk}`$ 即 §4.6 第 3 步的条件均值），更新 $`D`$：
 
 ```math
 D_{k+1}
@@ -1161,7 +1161,7 @@ D_{k+1}
 \mu_j^{(m)}(\mu_j^{(m)})^T.
 ```
 
-3. Under $`(\gamma_{k+1}, D_{k+1}, \sigma_k^2)`$, **resample** $`\tilde\mu_j^{(m)}\sim N(m''_{jk}, V'_{jk})`$ ($`m''_{jk}, V'_{jk}`$ are the conditional moments based on $`D_{k+1}`$ from step 4 of §4.6), and update $`\sigma^2`$:
+3. 在 $`(\gamma_{k+1}, D_{k+1}, \sigma_k^2)`$ 下**重新抽样** $`\tilde\mu_j^{(m)}\sim N(m''_{jk}, V'_{jk})`$（$`m''_{jk}, V'_{jk}`$ 即 §4.6 第 4 步基于 $`D_{k+1}`$ 的条件矩），更新 $`\sigma^2`$：
 
 ```math
 \sigma_{k+1}^2
@@ -1171,15 +1171,15 @@ D_{k+1}
 \|y_j-X_jW_j\gamma_{k+1}-X_j\tilde\mu_j^{(m)}\|^2.
 ```
 
-4. Since the E step is a stochastic approximation, the stopping criterion in practice typically combines maximum iterations, parameter change, and stability across multiple runs; sampling error means the path may not be strictly monotone (§2).
+4. 因 E 步为随机近似，实际停止准则通常结合最大迭代次数、参数变化量和多次运行稳定性判断；采样误差使路径可能不严格单调（§2）。
 
-## 5. General Linear Mixed Model
+## 5. 一般混合线性模型
 
-The general linear mixed model (LMM) is a generalization of the two-level model: the fixed-effect design $`X_i`$ and the random-effect design $`Z_i`$ can differ and are specified freely. The two-level model is a special case (with fixed design $`X_jW_j`$, random design $`X_j`$, $`u_i=\mu_j`$, $`G_0=D`$). A complete derivation is also available in `code/linear-mixed-model/lmm_derivation.md`.
+一般混合线性模型（Linear Mixed Model, LMM）是两层模型的推广：固定效应设计 $`X_i`$ 与随机效应设计 $`Z_i`$ 可彼此不同、任意指定。两层模型是其特例（取固定设计 $`X_jW_j`$、随机设计 $`X_j`$、$`u_i=\mu_j`$、$`G_0=D`$）。完整推导亦见 `code/linear-mixed-model/lmm_derivation.md`。
 
-### 5.1 Model Specification
+### 5.1 模型设定
 
-For $`i=1,\dots,m`$ level-2 units (groups),
+对 $`i=1,\dots,m`$ 个二级单元（组），
 
 ```math
 y_i = X_i\beta + Z_i u_i + \varepsilon_i,
@@ -1189,9 +1189,9 @@ u_i\sim N(0,G_0),
 \varepsilon_i\sim N(0,\sigma^2 I_{n_i}).
 ```
 
-where $`X_i\in\mathbb{R}^{n_i\times p}`$ is the fixed-effect design (including an intercept column), $`Z_i\in\mathbb{R}^{n_i\times k}`$ is the random-effect design, $`u_i`$ (a $`k`$-dimensional random effect) and $`\varepsilon_i`$ are mutually independent and independent across groups. This implementation takes $`Z_i=X_i[,1:k]`$ (random intercept plus random slopes for the first $`k-1`$ covariates, i.e., a random-coefficient model). Let $`n=\sum_i n_i`$. The parameters to estimate are $`\beta`$ ($`p`$-dimensional), $`G_0`$ ($`k\times k`$), and $`\sigma^2`$; the latent variables are $`u`$.
+其中 $`X_i\in\mathbb{R}^{n_i\times p}`$ 为固定效应设计（含截距列），$`Z_i\in\mathbb{R}^{n_i\times k}`$ 为随机效应设计，$`u_i`$（$`k`$ 维随机效应）与 $`\varepsilon_i`$ 相互独立、各组独立。本实现取 $`Z_i=X_i[,1:k]`$（随机截距 + 前 $`k-1`$ 个协变量的随机斜率，即随机系数模型）。记 $`n=\sum_i n_i`$。待估参数为 $`\beta`$（$`p`$ 维）、$`G_0`$（$`k\times k`$）、$`\sigma^2`$，隐变量为 $`u`$。
 
-In stacked matrix form,
+写成堆叠矩阵形式，
 
 ```math
 y=X\beta+Zu+\varepsilon,\qquad
@@ -1200,11 +1200,11 @@ Z=\mathrm{diag}(Z_1,\dots,Z_m),\quad
 u=\begin{pmatrix}u_1\\\vdots\\u_m\end{pmatrix}\sim N(0,G),\ \ G=I_m\otimes G_0,
 ```
 
-with $`\varepsilon\sim N(0,\sigma^2 I_n)`$. The fixed-effect design $`X`$ stacks by rows while the random-effect design $`Z`$ is **block-diagonal** — each group's $`u_i`$ acts only within its own block — so the marginal covariance $`V=ZGZ^T+\sigma^2 I_n=\mathrm{diag}(V_1,\dots,V_m)`$ is block-diagonal and the groups are independent. This is exactly the two-level model of §4 under the identification $`X_i\leftrightarrow X_jW_j`$, $`Z_i\leftrightarrow X_j`$, $`u_i\leftrightarrow\mu_j`$, $`G_0\leftrightarrow D`$, $`\beta\leftrightarrow\gamma`$.
+其中 $`\varepsilon\sim N(0,\sigma^2 I_n)`$。固定效应设计 $`X`$ 按行堆叠，而随机效应设计 $`Z`$ 为**块对角**——每组的 $`u_i`$ 只作用在自己的块内——故边际协方差 $`V=ZGZ^T+\sigma^2 I_n=\mathrm{diag}(V_1,\dots,V_m)`$ 亦为块对角、各组独立。这正是第 4 章两层模型在对应关系 $`X_i\leftrightarrow X_jW_j`$、$`Z_i\leftrightarrow X_j`$、$`u_i\leftrightarrow\mu_j`$、$`G_0\leftrightarrow D`$、$`\beta\leftrightarrow\gamma`$ 下的特例。
 
-### 5.2 Marginal Distribution and Random-Effects Posterior
+### 5.2 边际分布与随机效应后验
 
-Marginal distribution of the observed data:
+观测数据边际分布：
 
 ```math
 y_i\sim N(X_i\beta, V_i),
@@ -1212,7 +1212,7 @@ y_i\sim N(X_i\beta, V_i),
 V_i=Z_iG_0Z_i^T+\sigma^2 I_{n_i}.
 ```
 
-Treating $`u`$ as the latent variable, with groups independent, the random-effects posterior is $`u_i\mid y_i\sim N(u_i^*, V_i^*)`$, which simplifies to a computationally convenient form via the Woodbury identity:
+将 $`u`$ 视为隐变量，各组独立，随机效应后验为 $`u_i\mid y_i\sim N(u_i^*, V_i^*)`$，由 Woodbury 恒等式化为便于计算的形式：
 
 ```math
 u_i^*=(Z_i^TZ_i+\sigma^2 G_0^{-1})^{-1}Z_i^T(y_i-X_i\beta),
@@ -1220,9 +1220,9 @@ u_i^*=(Z_i^TZ_i+\sigma^2 G_0^{-1})^{-1}Z_i^T(y_i-X_i\beta),
 V_i^*=\sigma^2(Z_i^TZ_i+\sigma^2 G_0^{-1})^{-1}.
 ```
 
-### 5.3 Complete-Data Log-Likelihood and Prior
+### 5.3 完全数据对数似然与先验
 
-Using the flat non-informative prior $`\pi(\beta, G_0, \sigma^2)\propto 1`$, MAP and MLE coincide, and EM maximizes the marginal observed-data log-likelihood $`\log p(y\mid\beta, G_0, \sigma^2)`$. The parameter-dependent part of the complete-data log-likelihood is
+取平坦无信息先验 $`\pi(\beta, G_0, \sigma^2)\propto 1`$，故 MAP 与 MLE 一致，EM 极大化观测数据边际对数似然 $`\log p(y\mid\beta, G_0, \sigma^2)`$。完全数据对数似然中与参数有关的部分为
 
 ```math
 \ell_c(\beta,G_0,\sigma^2\mid y,u)
@@ -1233,11 +1233,11 @@ Using the flat non-informative prior $`\pi(\beta, G_0, \sigma^2)\propto 1`$, MAP
 -\frac{1}{2}\sum_{i=1}^{m}u_i^TG_0^{-1}u_i.
 ```
 
-The coefficient of $`\log|G_0|`$ is $`-m/2`$, corresponding to the divisor $`m`$ in the $`G_0`$ M step.
+$`\log|G_0|`$ 的系数为 $`-m/2`$，对应 $`G_0`$ 的 M 步除数 $`m`$。
 
-### 5.4 EM E Step and M Step
+### 5.4 EM 的 E 步与 M 步
 
-The E step uses $`E[u_i\mid y]=u_i^*`$ and $`E[u_iu_i^T\mid y]=u_i^*u_i^{*T}+V_i^*`$, giving
+E 步用 $`E[u_i\mid y]=u_i^*`$、$`E[u_iu_i^T\mid y]=u_i^*u_i^{*T}+V_i^*`$，得
 
 ```math
 Q\propto
@@ -1247,9 +1247,9 @@ Q\propto
 -\frac{1}{2}\sum_{i}[u_i^{*T}G_0^{-1}u_i^*+\mathrm{tr}(G_0^{-1}V_i^*)].
 ```
 
-M step:
+M 步：
 
-- Fixed effects $`\beta`$ (marginal GLS / ECME; the strict EM solution $`(\sum_i X_i^TX_i)^{-1}\sum_i X_i^T(y_i-Z_iu_i^*)`$ shares the same convergence point):
+- 固定效应 $`\beta`$（边际 GLS / ECME；严格 EM 解 $`(\sum_i X_i^TX_i)^{-1}\sum_i X_i^T(y_i-Z_iu_i^*)`$ 与之同收敛点）：
 
 ```math
 \beta_{t+1}=(\sum_{i=1}^{m}X_i^TV_i^{-1}X_i)^{-1}\sum_{i=1}^{m}X_i^TV_i^{-1}y_i,
@@ -1257,25 +1257,25 @@ M step:
 V_i=Z_iG_0Z_i^T+\sigma^2 I_{n_i}.
 ```
 
-- Random-effects covariance $`G_0`$ (ML ÷$`m`$):
+- 随机效应协方差 $`G_0`$（ML ÷$`m`$）：
 
 ```math
 G_{0,t+1}=\frac{1}{m}\sum_{i=1}^{m}(u_i^*u_i^{*T}+V_i^*).
 ```
 
-- Error variance $`\sigma^2`$ (ML ÷$`n`$):
+- 误差方差 $`\sigma^2`$（ML ÷$`n`$）：
 
 ```math
 \sigma^2_{t+1}=\frac{1}{n}\sum_{i=1}^{m}[\|y_i-X_i\beta_{t+1}-Z_iu_i^*\|^2+\mathrm{tr}(Z_iV_i^*Z_i^T)].
 ```
 
-The implementation follows the same multicycle-ECM order as §4.6: first update $`\beta`$ (GLS, independent of the posterior), then use the posterior under $`(\beta_{t+1}, G_{0,t}, \sigma_t^2)`$ to update $`G_0`$, then use the posterior under $`(\beta_{t+1}, G_{0,t+1}, \sigma_t^2)`$ to update $`\sigma^2`$.
+实现采用与 §4.6 相同的 multicycle-ECM 次序：先更新 $`\beta`$（GLS，不依赖后验），再用 $`(\beta_{t+1}, G_{0,t}, \sigma_t^2)`$ 的后验更新 $`G_0`$，再用 $`(\beta_{t+1}, G_{0,t+1}, \sigma_t^2)`$ 的后验更新 $`\sigma^2`$。
 
-For REML, the implementation adds the fixed-effect uncertainty terms $`B_iCB_i^T`$ to the $`G_0`$ update and $`\mathrm{tr}(A_iCA_i^T)`$ to the $`\sigma^2`$ update, where $`B_i=G_0Z_i^TV_i^{-1}X_i`$, $`A_i=X_i-Z_iG_0Z_i^TV_i^{-1}X_i`$, and $`C=\big(\sum_{i=1}^{m}X_i^TV_i^{-1}X_i\big)^{-1}`$ is the marginal-GLS covariance of $`\hat\beta`$ (these are §4.5.2/§4.5.3 specialized to fixed design $`X_i`$, random design $`Z_i`$, covariance $`G_0`$); `get_loglik` returns the restricted log-likelihood $`\ell_R=\ell_{\mathrm{ML}}(\hat\beta)+\tfrac12\log|C|+\tfrac{p}{2}\log(2\pi)`$ with $`p=\dim\beta`$. This keeps the ML degrees of freedom explicit while providing an unbiased REML alternative for variance components.
+REML 口径下，实现会在 $`G_0`$ 更新中加入固定效应不确定性项 $`B_iCB_i^T`$，在 $`\sigma^2`$ 更新中加入 $`\mathrm{tr}(A_iCA_i^T)`$，其中 $`B_i=G_0Z_i^TV_i^{-1}X_i`$、$`A_i=X_i-Z_iG_0Z_i^TV_i^{-1}X_i`$、$`C=\big(\sum_{i=1}^{m}X_i^TV_i^{-1}X_i\big)^{-1}`$ 为 $`\hat\beta`$ 的边际 GLS 协方差（即 §4.5.2/§4.5.3 在固定设计 $`X_i`$、随机设计 $`Z_i`$、协方差 $`G_0`$ 下的特例）；`get_loglik` 返回限制对数似然 $`\ell_R=\ell_{\mathrm{ML}}(\hat\beta)+\tfrac12\log|C|+\tfrac{p}{2}\log(2\pi)`$、$`p=\dim\beta`$。这样既保留 ML 自由度口径，也提供方差分量的无偏 REML 替代。
 
 ### 5.5 MCEM
 
-Draw $`M`$ samples $`u_i^{(1)},\dots,u_i^{(M)}`$ from $`u_i\mid y_i\sim N(u_i^*,V_i^*)`$ (also resampling with the latest parameters before each variance-component update); $`\beta`$ still uses the closed-form GLS; the variance components are replaced by sample approximations:
+从 $`u_i\mid y_i\sim N(u_i^*,V_i^*)`$ 抽取 $`M`$ 个样本 $`u_i^{(1)},\dots,u_i^{(M)}`$（同样在每个方差分量更新前用最新参数重新抽样），$`\beta`$ 仍用闭式 GLS，方差分量改用样本近似：
 
 ```math
 G_{0,t+1}=\frac{1}{mM}\sum_{l=1}^{M}\sum_{i=1}^{m}u_i^{(l)}u_i^{(l)T},
@@ -1283,199 +1283,199 @@ G_{0,t+1}=\frac{1}{mM}\sum_{l=1}^{M}\sum_{i=1}^{m}u_i^{(l)}u_i^{(l)T},
 \sigma^2_{t+1}=\frac{1}{nM}\sum_{l=1}^{M}\sum_{i=1}^{m}\|y_i-X_i\beta_{t+1}-Z_iu_i^{(l)}\|^2.
 ```
 
-As $`M\to\infty`$, each update converges to the corresponding EM update by the law of large numbers.
+$`M\to\infty`$ 时各更新依大数定律收敛到对应 EM 更新。
 
-## 6. Simulation Results
+## 6. 数值模拟结论
 
-### 6.1 t Regression Simulation Results
+### 6.1 t 回归模拟结论
 
-**Single-run EM: iteration path and MSE** (Fig. 3.1 / 3.2, left)
-
-<p align="center">
- <img src="code/t-regression/figures/25_t_em_single_iter.png" width="45%" alt="t regression EM single-run iteration path">
- <img src="code/t-regression/figures/26_t_em_single_mse.png" width="45%" alt="t regression EM single-run MSE over iterations">
-</p>
-
-**EM averaged over 500 simulations: iteration path and MSE** (Fig. 3.1 / 3.2, right; Fig. 3.6)
+**单次 EM：迭代过程与 MSE**（图 3.1 / 3.2 左）
 
 <p align="center">
- <img src="code/t-regression/figures/21_t_em_500sim_iter.png" width="45%" alt="t regression EM averaged over 500 simulations: iteration path">
- <img src="code/t-regression/figures/22_t_em_500sim_mse.png" width="45%" alt="t regression EM 500 simulations: MSE over iterations">
+ <img src="code/t-regression/figures/25_t_em_single_iter.png" width="45%" alt="t 回归 EM 单次执行迭代过程">
+ <img src="code/t-regression/figures/26_t_em_single_mse.png" width="45%" alt="t 回归 EM 单次执行 MSE 变化">
 </p>
 
-**Initialization strategies over 500 simulations: conservative vs. wide-range** (Fig. 3.3)
+**EM 500 次模拟取平均：迭代过程与 MSE**（图 3.1 / 3.2 右；图 3.6）
 
 <p align="center">
- <img src="code/t-regression/figures/27_t_em_normal_init_iter.png" width="45%" alt="t regression EM conservative-initialization iteration path (500 simulations)">
- <img src="code/t-regression/figures/28_t_em_bold_init_iter.png" width="45%" alt="t regression EM wide-range-initialization iteration path (500 simulations)">
+ <img src="code/t-regression/figures/21_t_em_500sim_iter.png" width="45%" alt="t 回归 EM 500 次模拟取平均的迭代过程">
+ <img src="code/t-regression/figures/22_t_em_500sim_mse.png" width="45%" alt="t 回归 EM 500 次模拟的 MSE 变化">
 </p>
 
-**Degrees-of-freedom sweep: estimation error and iteration count** (Fig. 3.4)
+**初始化策略对比（500 次模拟）：保守型 vs 扩展型**（图 3.3）
 
 <p align="center">
- <img src="code/t-regression/figures/29_t_df_error.png" width="45%" alt="t regression parameter estimation error vs degrees of freedom">
- <img src="code/t-regression/figures/30_t_df_iter.png" width="45%" alt="t regression EM iteration count vs degrees of freedom">
+ <img src="code/t-regression/figures/27_t_em_normal_init_iter.png" width="45%" alt="t 回归 EM 保守型初始化迭代过程（500 次模拟）">
+ <img src="code/t-regression/figures/28_t_em_bold_init_iter.png" width="45%" alt="t 回归 EM 扩展型初始化迭代过程（500 次模拟）">
 </p>
 
-**Single-run MCEM: M=1 vs M=100 samples** (Fig. 3.5)
+**自由度扫描：估计误差与迭代次数**（图 3.4）
 
 <p align="center">
- <img src="code/t-regression/figures/31_t_mcem_M1_single_iter.png" width="45%" alt="t regression MCEM(M=1) single-run iteration path">
- <img src="code/t-regression/figures/32_t_mcem_M100_single_iter.png" width="45%" alt="t regression MCEM(M=100) single-run iteration path">
+ <img src="code/t-regression/figures/29_t_df_error.png" width="45%" alt="t 回归参数估计误差随自由度变化">
+ <img src="code/t-regression/figures/30_t_df_iter.png" width="45%" alt="t 回归 EM 迭代次数随自由度变化">
 </p>
 
-**MCEM(M=100) averaged over 500 simulations: iteration path and MSE** (Fig. 3.6)
+**单次 MCEM：M=1 与 M=100 采样对比**（图 3.5）
 
 <p align="center">
- <img src="code/t-regression/figures/23_t_mcem_500sim_iter.png" width="45%" alt="t regression MCEM(M=100) averaged over 500 simulations: iteration path">
- <img src="code/t-regression/figures/24_t_mcem_500sim_mse.png" width="45%" alt="t regression MCEM(M=100) 500 simulations: MSE over iterations">
+ <img src="code/t-regression/figures/31_t_mcem_M1_single_iter.png" width="45%" alt="t 回归 MCEM(M=1) 单次执行迭代过程">
+ <img src="code/t-regression/figures/32_t_mcem_M100_single_iter.png" width="45%" alt="t 回归 MCEM(M=100) 单次执行迭代过程">
 </p>
 
-> Figures generated by `code/t-regression/driver_compare500.R` (21–24), `driver_em_plots.R` (25–30), and `driver_mcem_plots.R` (31–32), all with `set.seed(2025)` and saved in `code/t-regression/figures/`. The degrees-of-freedom sweep (29/30) uses a coarse df grid for runtime; the trend matches the thesis.
+**MCEM(M=100) 500 次模拟取平均：迭代过程与 MSE**（图 3.6）
 
-Average over 500 simulations ($`n=500`$, $`p=2`$, $`\nu=10`$, true values $`\beta=(2,3,5)`$, $`\sigma^2=0.4`$; fixed initial values $`\beta_0=0`$, $`\sigma_0^2=0.1`$):
+<p align="center">
+ <img src="code/t-regression/figures/23_t_mcem_500sim_iter.png" width="45%" alt="t 回归 MCEM(M=100) 500 次模拟取平均的迭代过程">
+ <img src="code/t-regression/figures/24_t_mcem_500sim_mse.png" width="45%" alt="t 回归 MCEM(M=100) 500 次模拟的 MSE 变化">
+</p>
 
-| Metric | EM | MCEM $`M=100`$ |
+> 图由 `code/t-regression/driver_compare500.R`（21–24）、`driver_em_plots.R`（25–30）、`driver_mcem_plots.R`（31–32）生成（均 `set.seed(2025)`），保存于 `code/t-regression/figures/`。自由度扫描（29/30）为控制耗时采用粗网格，趋势与论文一致。
+
+500 次模拟均值对比（$`n=500`$，$`p=2`$，$`\nu=10`$，真值 $`\beta=(2,3,5)`$、$`\sigma^2=0.4`$；固定初值 $`\beta_0=0`$、$`\sigma_0^2=0.1`$）：
+
+| 指标 | EM | MCEM $`M=100`$ |
 |---|---:|---:|
 | $`\hat\beta`$ | (2.0005, 3.0008, 5.0000) | (1.9975, 3.0000, 5.0014) |
 | $`\hat\sigma^2`$ | 0.3977 | 0.3957 |
-| MSE of $`\beta`$ | 8.62e−07 | 8.39e−06 |
-| MSE of $`\sigma^2`$ | 5.50e−06 | 1.89e−05 |
-| Total MSE | 6.36e−06 | 2.73e−05 |
-| Mean iterations | 13.49 | 100.00 (reached limit) |
-| Total time (s) | 11.0 | 336.7 |
+| $`\beta`$ 的 MSE | 8.62e−07 | 8.39e−06 |
+| $`\sigma^2`$ 的 MSE | 5.50e−06 | 1.89e−05 |
+| 总 MSE | 6.36e−06 | 2.73e−05 |
+| 平均迭代次数 | 13.49 | 100.00（达上限）|
+| 总耗时（秒） | 11.0 | 336.7 |
 
-Key findings:
+主要结论：
 
-- t regression EM is essentially iteratively reweighted least squares; observations with large residuals are automatically down-weighted.
-- When the degrees of freedom specified in the algorithm match the true degrees of freedom in the data, $`\sigma^2`$ is estimated more accurately.
-- $`\beta`$ is relatively insensitive to the degrees-of-freedom specification and remains stable overall.
-- When $`M`$ is large enough, MCEM estimates approach analytic EM; when $`M`$ is small, the path is affected by sampling error.
+- t 回归 EM 本质是迭代加权最小二乘，大残差观测会被自动降权。
+- 当算法设定自由度与数据真实自由度匹配时，$`\sigma^2`$ 估计更准确。
+- $`\beta`$ 对自由度设定相对不敏感，整体估计较稳定。
+- $`M`$ 足够大时，MCEM 的估计结果接近解析 EM；$`M`$ 较小时路径会受采样误差影响。
 
-#### 6.1.1 Comparison with Library Results
+#### 6.1.1 与调库结果的对比与评估
 
-To independently verify the hand-coded implementation, `code/t-regression/driver_library_compare.R` (`set.seed(2025)`, $`n=500`$, $`\nu=10`$, 500 simulations) benchmarks the hand-coded EM/MCEM against three reference implementations: `optim` directly maximizing the marginal t likelihood (pure MLE), the third-party t regression library `hett::tlm`, and robust regression `MASS::rlm` (Huber M-estimation, different loss function).
+为独立验证手写实现，`code/t-regression/driver_library_compare.R`（`set.seed(2025)`，$`n=500`$、$`\nu=10`$、500 次模拟）把手写 EM/MCEM 与三种现成实现逐一对照：`optim` 直接极大化边际 t 似然（纯 MLE）、第三方 t 回归库 `hett::tlm`、稳健回归 `MASS::rlm`（Huber M-估计，不同损失函数）。
 
-**Single-dataset digit-by-digit comparison**: the hand-coded EM agrees digit-for-digit with "`optim` maximizing the same log-posterior (including the $`\pi\propto1/\sigma^2`$ prior)" ($`\max|\Delta\beta|=2\times10^{-8}`$, $`|\Delta\sigma^2|=4\times10^{-8}`$); $`\beta`$ agrees with `optim` (pure MLE) and `hett::tlm` to $`\approx10^{-5}`$; $`\mathrm{cor}(\beta_{\mathrm{EM}},\beta_{\mathrm{rlm}})=\mathrm{cor}(\beta_{\mathrm{EM}},\beta_{\mathrm{hett}})=1.0000`$.
+**单数据集逐位对照**：手写 EM 与"`optim` 极大化同一对数后验（含 $`\pi\propto1/\sigma^2`$ 先验）"逐位一致（$`\max|\Delta\beta|=2\times10^{-8}`$，$`|\Delta\sigma^2|=4\times10^{-8}`$）；$`\beta`$ 与 `optim`（纯 MLE）、`hett::tlm` 一致到 $`\approx10^{-5}`$；$`\mathrm{cor}(\beta_{\mathrm{EM}},\beta_{\mathrm{rlm}})=\mathrm{cor}(\beta_{\mathrm{EM}},\beta_{\mathrm{hett}})=1.0000`$。
 
-**Mean comparison over 500 simulations** (true values $`\beta=(2,3,5)`$, $`\sigma^2=0.4`$):
+**500 次模拟均值对比**（真值 $`\beta=(2,3,5)`$、$`\sigma^2=0.4`$）：
 
-| Method | Mean $`\hat\beta`$ | $`\hat\sigma^2`$ | Mean per-run MSE † | Note |
+| 方法 | $`\hat\beta`$ 均值 | $`\hat\sigma^2`$ | 平均单次 MSE † | 口径说明 |
 |---|---|---:|---:|---|
-| Hand-coded EM (MAP) | (2.0005, 3.0008, 5.0000) | 0.3977 | 3.69e−03 | Prior $`\pi\propto1/\sigma^2`$, $`\sigma^2`$ divided by $`n+2`$ |
-| `optim` (marginal MLE) | (2.0005, 3.0008, 5.0000) | 0.3997 | 3.69e−03 | Pure likelihood, $`\sigma^2`$ divided by $`n`$ |
-| `hett::tlm` | (2.0005, 3.0008, 5.0000) | 0.3997 | 3.69e−03 | Third-party t regression MLE library |
-| `MASS::rlm` | (2.0006, 3.0008, 5.0001) | — | 2.82e−03 | Huber M-estimation ($`\beta`$ only) |
+| 手写 EM（MAP）| (2.0005, 3.0008, 5.0000) | 0.3977 | 3.69e−03 | 先验 $`\pi\propto1/\sigma^2`$，$`\sigma^2`$ 除 $`n+2`$ |
+| `optim`（边际 MLE）| (2.0005, 3.0008, 5.0000) | 0.3997 | 3.69e−03 | 纯似然，$`\sigma^2`$ 除 $`n`$ |
+| `hett::tlm` | (2.0005, 3.0008, 5.0000) | 0.3997 | 3.69e−03 | 第三方 t 回归 MLE 库 |
+| `MASS::rlm` | (2.0006, 3.0008, 5.0001) | — | 2.82e−03 | Huber M-估计（仅 $`\beta`$）|
 
-> † **MSE definition note.** The "mean per-run MSE" in this table is the average over 500 simulations of the squared error in **each individual run** ($`\frac{1}{S}\sum_s[\,\lVert\hat\beta_s-\beta\rVert^2+(\hat\sigma^2_s-\sigma^2)^2\,]`$), measuring single-run estimation accuracy; the "total MSE" (6.36e−06) in the main table of §6.1 is computed by **first averaging the 500 estimates and then computing the deviation** ($`\lVert\bar{\hat\beta}-\beta\rVert^2+\dots`$), measuring estimator bias. These two quantities measure different things and cannot be compared directly; the hand-coded implementation agrees with all libraries under both definitions.
+> † **MSE 口径说明。** 本表"平均单次 MSE"是 500 次模拟中**每次**估计误差平方和的均值（$`\frac{1}{S}\sum_s[\,\lVert\hat\beta_s-\beta\rVert^2+(\hat\sigma^2_s-\sigma^2)^2\,]`$），衡量单次估计精度；而 §6.1 主表的"总 MSE"（6.36e−06）是**先对 500 次估计取平均、再算偏差**（$`\lVert\bar{\hat\beta}-\beta\rVert^2+\dots`$），衡量估计量的偏倚。二者度量不同、数值不可直接比较；两口径下手写与各库均一致。
 
-> **On the $`\sigma^2`$ discrepancy.** The hand-coded EM's $`\hat\sigma^2=0.3977`$ is slightly below `optim`/`hett`'s $`0.3997`$; the gap is exactly the MAP-to-MLE ratio $`\approx1-2/n`$ (dividing by $`n+2`$ vs. $`n`$), **not an implementation error**; $`\beta`$ is unaffected by the prior and agrees digit-for-digit across all three. This confirms that the derivation in §3.2 and §3.5 — "the prior $`\pi\propto1/\sigma^2`$ converts ML to MAP, changing the divisor from $`n`$ to $`n+2`$" — is self-consistent and correct.
+> **关于 $`\sigma^2`$ 的口径差异。** 手写 EM 的 $`\hat\sigma^2=0.3977`$ 略低于 `optim`/`hett` 的 $`0.3997`$，差异恰为 MAP（除 $`n+2`$）与纯 MLE（除 $`n`$）之比 $`\approx1-2/n`$，**并非实现错误**；$`\beta`$ 不受先验影响，三者逐位一致。这印证了 §3.2、§3.5 中"先验 $`\pi\propto1/\sigma^2`$ 把 ML 改为 MAP、除数由 $`n`$ 变为 $`n+2`$"的推导是自洽且正确的。
 
-### 6.2 Two-Level Linear Model Simulation Results
+### 6.2 两层线性模型模拟结论
 
-Setup: $`J=20`$ groups, $`p=2`$, $`q=3`$, within-group sample sizes $`n_j\in\{60,80,100\}`$. The true parameters follow the thesis §4.1.2 setup and are drawn under `set.seed(2025)`: $`D=Q\Lambda Q^{\top}`$ with a random orthogonal factor $`Q`$ (the QR factor of a Gaussian matrix) and fixed spectrum $`\Lambda=\mathrm{diag}(5,6,7)`$ — i.e. a random rotation with eigenvalues $`(5,6,7)`$; the fixed effects $`\gamma`$ and the level-1 error variance $`\sigma^2`$ are drawn from uniform distributions ($`\gamma_i\sim U(0,12)`$, $`\sigma^2\sim U(1,5)`$). Fixed initial values $`\gamma_0=0.1`$, $`\sigma_0^2=0.1`$. The variance component $`D`$ is estimated by **REML** (`options(hlm_reml=TRUE)`, see §4.5.2). The figures below are generated by `driver_em_plots.R`, `driver_mcem_plots.R`, and `driver_compare500.R` (all with `set.seed(2025)`) and saved in `code/two-level-model/figures/`. (The library validation further below uses a fixed $`D`$ with diagonal $`(5,6,7)`$ for a controlled comparison against `lme4`.)
+设置 $`J=20`$ 组、$`p=2`$、$`q=3`$，组内样本量 $`n_j\in\{60,80,100\}`$。真实参数按论文 §4.1.2 的设定在 `set.seed(2025)` 下随机生成：$`D=Q\Lambda Q^{\top}`$，其中 $`Q`$ 为随机正交因子（高斯矩阵的 QR 正交因子），固定谱 $`\Lambda=\mathrm{diag}(5,6,7)`$——即特征值为 $`(5,6,7)`$ 的随机旋转矩阵；固定效应 $`\gamma`$ 与一级误差方差 $`\sigma^2`$ 取自均匀分布（$`\gamma_i\sim U(0,12)`$、$`\sigma^2\sim U(1,5)`$）。固定初值 $`\gamma_0=0.1`$、$`\sigma_0^2=0.1`$。方差分量 $`D`$ 采用 **REML** 估计（`options(hlm_reml=TRUE)`，见 §4.5.2）。下列图分别由 `driver_em_plots.R`、`driver_mcem_plots.R`、`driver_compare500.R`（均 `set.seed(2025)`）生成，保存于 `code/two-level-model/figures/`。（下方的库对照验证使用对角为 $`(5,6,7)`$ 的固定 $`D`$，以便与 `lme4` 做受控比较。）
 
-> **Why REML.** The maximum-likelihood (ML) estimate of $`D`$ has an intrinsic downward bias of approximately $`(J-(q+1))/J`$ with few groups: at $`J=20`$, $`q=3`$, the factor is $`\approx0.8`$, causing the diagonal of $`\hat D`$ to be systematically about 20% below the truth (while $`\hat\sigma^2`$ is unaffected; this is not an implementation error — the ML estimator is consistent and §7.2 agrees with `lme4` ML digit-for-digit). Switching to REML (which propagates the uncertainty in $`\hat\gamma`$ back into the random effects by adding the correction term $`B_jCB_j^T`$ per group; derivation in §4.5.2) makes $`\hat D`$ approximately unbiased even at $`J=20`$ (diagonal recovering to approximately 100% of the truth). The empirical analysis in §7.2 retains ML to compare with `lme4` ML.
+> **为何用 REML。** $`D`$ 的极大似然（ML）估计在小组数下有约 $`(J-(q+1))/J`$ 的固有向下偏：$`J=20`$、$`q=3`$ 时因子 $`\approx0.8`$，曾使 $`\hat D`$ 对角系统性低于真值约 20%（$`\hat\sigma^2`$ 不受影响；这并非实现错误，ML 估计量相合且 §7.2 与 `lme4` ML 逐位吻合）。改用 REML（把 $`\hat\gamma`$ 的不确定性传播回随机效应，每组加校正项 $`B_jCB_j^T`$，推导见 §4.5.2）后，$`\hat D`$ 在 $`J=20`$ 的小组数下即基本无偏（对角恢复到真值约 100%）。实证 §7.2 仍用 ML 以对照 `lme4` ML。
 
-**Single-run EM iteration path and MSE**
-
-<p align="center">
- <img src="code/two-level-model/figures/01_em_single_iter.png" width="45%" alt="Single-run EM iteration path">
- <img src="code/two-level-model/figures/02_em_single_mse.png" width="45%" alt="Single-run EM MSE over iterations">
-</p>
-
-**EM averaged over 500 simulations**
+**单次 EM 迭代过程与 MSE**
 
 <p align="center">
- <img src="code/two-level-model/figures/03_em_500sim_iter.png" width="45%" alt="EM averaged over 500 simulations: iteration path">
- <img src="code/two-level-model/figures/04_em_500sim_mse.png" width="45%" alt="EM averaged over 500 simulations: MSE">
+ <img src="code/two-level-model/figures/01_em_single_iter.png" width="45%" alt="单次 EM 迭代过程">
+ <img src="code/two-level-model/figures/02_em_single_mse.png" width="45%" alt="单次 EM 的 MSE 变化">
 </p>
 
-**Robustness of initialization strategies (top: same-distribution; bottom: aggressive)**
+**EM 500 次模拟取平均**
 
 <p align="center">
- <img src="code/two-level-model/figures/05_em_normal_init_iter.png" width="45%" alt="Same-distribution initialization: iteration path">
- <img src="code/two-level-model/figures/06_em_normal_init_mse.png" width="45%" alt="Same-distribution initialization: MSE">
-</p>
-<p align="center">
- <img src="code/two-level-model/figures/07_em_bold_init_iter.png" width="45%" alt="Aggressive initialization: iteration path">
- <img src="code/two-level-model/figures/08_em_bold_init_mse.png" width="45%" alt="Aggressive initialization: MSE">
+ <img src="code/two-level-model/figures/03_em_500sim_iter.png" width="45%" alt="EM 500 次模拟取平均的迭代过程">
+ <img src="code/two-level-model/figures/04_em_500sim_mse.png" width="45%" alt="EM 500 次模拟取平均的 MSE 变化">
 </p>
 
-**Single-run MCEM iteration path and MSE (top: M=10; bottom: M=100)**
+**初始化策略稳健性（上：同分布型；下：扩展型）**
 
 <p align="center">
- <img src="code/two-level-model/figures/11_mcem_M10_single_iter.png" width="45%" alt="Single-run MCEM(M=10) iteration path">
- <img src="code/two-level-model/figures/12_mcem_M10_single_mse.png" width="45%" alt="Single-run MCEM(M=10) MSE">
+ <img src="code/two-level-model/figures/05_em_normal_init_iter.png" width="45%" alt="同分布型初始化迭代过程">
+ <img src="code/two-level-model/figures/06_em_normal_init_mse.png" width="45%" alt="同分布型初始化 MSE 变化">
 </p>
 <p align="center">
- <img src="code/two-level-model/figures/13_mcem_M100_single_iter.png" width="45%" alt="Single-run MCEM(M=100) iteration path">
- <img src="code/two-level-model/figures/14_mcem_M100_single_mse.png" width="45%" alt="Single-run MCEM(M=100) MSE">
+ <img src="code/two-level-model/figures/07_em_bold_init_iter.png" width="45%" alt="扩展型初始化迭代过程">
+ <img src="code/two-level-model/figures/08_em_bold_init_mse.png" width="45%" alt="扩展型初始化 MSE 变化">
 </p>
 
-**MCEM averaged over 500 simulations (top: M=10; bottom: M=100)**
+**单次 MCEM 迭代过程与 MSE（上：M=10；下：M=100）**
 
 <p align="center">
- <img src="code/two-level-model/figures/15_mcem_M10_500sim_iter.png" width="45%" alt="MCEM(M=10) averaged over 500 simulations: iteration path">
- <img src="code/two-level-model/figures/16_mcem_M10_500sim_mse.png" width="45%" alt="MCEM(M=10) averaged over 500 simulations: MSE">
+ <img src="code/two-level-model/figures/11_mcem_M10_single_iter.png" width="45%" alt="单次 MCEM(M=10) 迭代过程">
+ <img src="code/two-level-model/figures/12_mcem_M10_single_mse.png" width="45%" alt="单次 MCEM(M=10) 的 MSE 变化">
 </p>
 <p align="center">
- <img src="code/two-level-model/figures/17_mcem_M100_500sim_iter.png" width="45%" alt="MCEM(M=100) averaged over 500 simulations: iteration path">
- <img src="code/two-level-model/figures/18_mcem_M100_500sim_mse.png" width="45%" alt="MCEM(M=100) averaged over 500 simulations: MSE">
+ <img src="code/two-level-model/figures/13_mcem_M100_single_iter.png" width="45%" alt="单次 MCEM(M=100) 迭代过程">
+ <img src="code/two-level-model/figures/14_mcem_M100_single_mse.png" width="45%" alt="单次 MCEM(M=100) 的 MSE 变化">
 </p>
 
-**EM vs. MCEM(M=50) comparison over 500 simulations**
+**MCEM 500 次模拟取平均（上：M=10；下：M=100）**
 
 <p align="center">
- <img src="code/two-level-model/figures/51_hlm_em_500sim_iter.png" width="45%" alt="Two-level model EM averaged over 500 simulations: iteration path">
- <img src="code/two-level-model/figures/52_hlm_em_500sim_mse.png" width="45%" alt="Two-level model EM 500 simulations: MSE">
+ <img src="code/two-level-model/figures/15_mcem_M10_500sim_iter.png" width="45%" alt="MCEM(M=10) 500 次模拟取平均的迭代过程">
+ <img src="code/two-level-model/figures/16_mcem_M10_500sim_mse.png" width="45%" alt="MCEM(M=10) 500 次模拟取平均的 MSE 变化">
 </p>
 <p align="center">
- <img src="code/two-level-model/figures/53_hlm_mcem_500sim_iter.png" width="45%" alt="Two-level model MCEM(M=50) averaged over 500 simulations: iteration path">
- <img src="code/two-level-model/figures/54_hlm_mcem_500sim_mse.png" width="45%" alt="Two-level model MCEM(M=50) 500 simulations: MSE">
+ <img src="code/two-level-model/figures/17_mcem_M100_500sim_iter.png" width="45%" alt="MCEM(M=100) 500 次模拟取平均的迭代过程">
+ <img src="code/two-level-model/figures/18_mcem_M100_500sim_mse.png" width="45%" alt="MCEM(M=100) 500 次模拟取平均的 MSE 变化">
 </p>
 
-Average over 500 simulations ($`J=20`$, REML, `max_iter=30`, output by `driver_compare500.R`; the true $`D`$ has eigenvalues $`(5,6,7)`$, the drawn $`\sigma^2\approx2.693`$). MSE of $`D`$ is the Frobenius error $`\lVert\hat D-D\rVert_F`$ (rotation-invariant):
+**EM 与 MCEM(M=50) 500 次模拟对比**
 
-| Metric | EM | MCEM $`M=50`$ |
+<p align="center">
+ <img src="code/two-level-model/figures/51_hlm_em_500sim_iter.png" width="45%" alt="两层模型 EM 500 次模拟取平均的迭代过程">
+ <img src="code/two-level-model/figures/52_hlm_em_500sim_mse.png" width="45%" alt="两层模型 EM 500 次模拟的 MSE 变化">
+</p>
+<p align="center">
+ <img src="code/two-level-model/figures/53_hlm_mcem_500sim_iter.png" width="45%" alt="两层模型 MCEM(M=50) 500 次模拟取平均的迭代过程">
+ <img src="code/two-level-model/figures/54_hlm_mcem_500sim_mse.png" width="45%" alt="两层模型 MCEM(M=50) 500 次模拟的 MSE 变化">
+</p>
+
+500 次模拟均值对比（$`J=20`$、REML，`max_iter=30`，由 `driver_compare500.R` 输出；真实 $`D`$ 特征值为 $`(5,6,7)`$，随机抽得 $`\sigma^2\approx2.693`$）。$`D`$ 的 MSE 为 Frobenius 误差 $`\lVert\hat D-D\rVert_F`$（旋转不变）：
+
+| 指标 | EM | MCEM $`M=50`$ |
 |---|---:|---:|
-| $`\hat\sigma^2`$ (truth $`\approx2.693`$) | 2.6891 | 2.6900 |
-| MSE of $`\gamma`$ | 0.16810 | 0.16562 |
-| MSE of $`D`$ | 0.28075 | 0.19965 |
-| MSE of $`\sigma^2`$ | 0.00369 | 0.00282 |
-| Total MSE | 0.45254 | 0.36808 |
-| Mean iterations | 11.58 | 30.00 (reached limit) |
-| Total time (s) | 61.1 | 320.1 |
+| $`\hat\sigma^2`$（真值 $`\approx2.693`$） | 2.6891 | 2.6900 |
+| $`\gamma`$ 的 MSE | 0.16810 | 0.16562 |
+| $`D`$ 的 MSE | 0.28075 | 0.19965 |
+| $`\sigma^2`$ 的 MSE | 0.00369 | 0.00282 |
+| 总 MSE | 0.45254 | 0.36808 |
+| 平均迭代次数 | 11.58 | 30.00（达上限）|
+| 总耗时（秒） | 61.1 | 320.1 |
 
-> Reference: under the same setup with ML (`options(hlm_reml=FALSE)`), the eigenvalues of $`\hat D`$ are approximately $`(4.0,4.8,5.7)\approx0.8\times(5,6,7)`$ and MSE of $`D`$ is $`\approx2.2`$ — i.e., the old result with about 20% underestimation; REML reduces the MSE of $`D`$ to $`\approx0.21`$ (roughly 10-fold improvement).
+> 对照：同设置下若用 ML（`options(hlm_reml=FALSE)`），$`\hat D`$ 特征值约 $`(4.0,4.8,5.7)\approx0.8\times(5,6,7)`$、$`D`$ 的 MSE $`\approx2.2`$——即被低估约 20% 的旧结果；REML 把 $`D`$ 的 MSE 降到 $`\approx0.21`$（约 10 倍）。
 
-Key findings:
+主要结论：
 
-- With REML, EM monotonically increases the **restricted log-likelihood** (§4.5.2); $`\gamma`$, $`\sigma^2`$, and $`D`$ all accurately recover the true values.
-- At the small group count of $`J=20`$, the eigenvalue spectrum of $`\hat D`$ recovers to approximately 100% of the truth (ML would underestimate by about 20%), and $`D`$ no longer dominates total error — REML propagates the uncertainty in $`\hat\gamma`$ back to the random effects, eliminating the small-sample downward bias in variance components.
-- EM and MCEM ($`M=50`$) achieve comparable accuracy; neither variance-component estimate dominates and both are close to the true values.
-- MCEM often hits the maximum iteration count under strict tolerances (30 steps in this setup) due to Monte Carlo noise, and resampling at each step makes it substantially slower ($`\approx5.2\times`$), but parameter estimates remain close to EM.
+- 采用 REML 后，EM 单调增加**限制对数似然**（§4.5.2）；$`\gamma`$、$`\sigma^2`$、$`D`$ 均准确恢复真值。
+- 在 $`J=20`$ 的小组数下，$`\hat D`$ 特征谱恢复到真值约 100%（ML 会低估约 20%），$`D`$ 不再主导总误差——REML 把 $`\hat\gamma`$ 的不确定性传播回随机效应，消除了方差分量的小样本向下偏。
+- EM 与 MCEM（$`M=50`$）精度相当，方差分量估计互有高低、均接近真值。
+- MCEM 因 Monte Carlo 噪声在严格容差下常达到最大迭代次数（本设置 30 步），且每步重抽样使其显著更慢（$`\approx5.2\times`$），但参数估计仍接近 EM。
 
-#### 6.2.1 Comparison with Library Results
+#### 6.2.1 与调库结果的对比与评估
 
-`code/two-level-model/driver_library_compare.R` (`set.seed(2025)`, $`J=20`$, 200 simulations) benchmarks the hand-coded EM/MCEM against the gold standard `lme4::lmer` on the same data, with **each estimand aligned separately**: hand-coded EM(ML) ↔ `lmer(REML=FALSE)`, hand-coded EM(REML) ↔ `lmer(REML=TRUE)`.
+`code/two-level-model/driver_library_compare.R`（`set.seed(2025)`，$`J=20`$、200 次模拟）把手写 EM/MCEM 与金标准 `lme4::lmer` 在同一批数据上对照，且**两种口径分别对齐**：手写 EM(ML) ↔ `lmer(REML=FALSE)`，手写 EM(REML) ↔ `lmer(REML=TRUE)`。
 
-**Single-dataset digit-by-digit comparison**:
-- ML: hand-coded EM vs. `lme4`(ML): $`\max|\Delta\gamma|=10^{-9}`$, $`\max|\Delta D|=2\times10^{-6}`$, log-likelihood difference $`2\times10^{-12}`$.
-- REML: hand-coded EM vs. `lme4`(REML): $`\max|\Delta\gamma|=2\times10^{-9}`$, $`\max|\Delta D|=4\times10^{-6}`$, $`|\Delta\sigma^2|=3\times10^{-8}`$, log-likelihood difference $`4\times10^{-12}`$, confirming that **both** REML corrections — $`B_jCB_j^T`$ for $`D`$ (§4.5.2) and $`\mathrm{tr}(A_jCA_j^T)`$ for $`\sigma^2`$ (§4.5.3) — are derived correctly.
+**单数据集逐位对照**：
+- ML：手写 EM 与 `lme4`(ML) $`\max|\Delta\gamma|=10^{-9}`$、$`\max|\Delta D|=2\times10^{-6}`$、对数似然差 $`2\times10^{-12}`$。
+- REML：手写 EM 与 `lme4`(REML) $`\max|\Delta\gamma|=2\times10^{-9}`$、$`\max|\Delta D|=4\times10^{-6}`$、$`|\Delta\sigma^2|=3\times10^{-8}`$、对数似然差 $`4\times10^{-12}`$，确证**两项** REML 校正——$`D`$ 的 $`B_jCB_j^T`$（§4.5.2）与 $`\sigma^2`$ 的 $`\mathrm{tr}(A_jCA_j^T)`$（§4.5.3）——均推导正确。
 
-**200 simulations (bias/MSE evaluation, true $`D`$ diagonal $`(5,6,7)`$, $`\sigma^2=3`$)**:
+**200 次模拟（偏差/MSE 评估，真值 $`D`$ 对角 $`(5,6,7)`$、$`\sigma^2=3`$）**：
 
-| Method | Diagonal of $`\hat D`$ | $`\hat\sigma^2`$ | Mean max-diff vs. corresponding `lme4` |
+| 方法 | $`\hat D`$ 对角 | $`\hat\sigma^2`$ | 与对应 `lme4` 平均 max-diff |
 |---|---|---:|---|
-| Hand-coded EM(ML) | (4.076, 4.950, 5.718) | 2.986 | $`3\times10^{-6}`$ (vs. `lme4` ML) |
-| Hand-coded EM(REML) | (5.104, 6.197, 7.158) | 2.986 | $`6\times10^{-6}`$ (vs. `lme4` REML) |
+| 手写 EM(ML) | (4.076, 4.950, 5.718) | 2.986 | $`3\times10^{-6}`$（vs `lme4` ML）|
+| 手写 EM(REML) | (5.104, 6.197, 7.158) | 2.986 | $`6\times10^{-6}`$（vs `lme4` REML）|
 
-The ML diagonal of $`\hat D`$ is approximately $`(J-(q+1))/J=16/20=0.80`$ times the truth — observed values $`(4.08,4.95,5.72)\approx0.80\times(5,6,7)`$, exactly matching the bias magnitude in §4.5.2; REML correction recovers it to $`\approx102\%`$ of the truth. Under both estimands the hand-coded implementation agrees digit-for-digit with `lme4`, **confirming that the ML downward bias is an intrinsic property of the estimator, not an implementation defect**. (This 200-simulation validation uses a fixed $`D`$ with diagonal $`(5,6,7)`$ — a controlled setup for the `lme4` comparison — distinct from the QR-random true $`D`$ used in the §6.2 main simulation.)
+ML 的 $`\hat D`$ 对角约为真值的 $`(J-(q+1))/J=16/20=0.80`$ 倍——观测值 $`(4.08,4.95,5.72)\approx0.80\times(5,6,7)`$，与 §4.5.2 的偏差量级完全吻合；REML 校正后恢复到真值的 $`\approx102\%`$。两种口径下手写实现都与 `lme4` 逐位一致，**证明 ML 向下偏是估计量固有性质而非实现缺陷**。（本 200 次模拟验证使用对角为 $`(5,6,7)`$ 的固定 $`D`$——为与 `lme4` 做受控比较，区别于 §6.2 主模拟所用的 QR-随机真实 $`D`$。）
 
-### 6.3 General Linear Mixed Model Simulation Results
+### 6.3 一般混合线性模型模拟结论
 
-Parameter setup (seed=2025, 500 simulations):
+参数设置如下（seed=2025，500 次模拟）：
 
 ```math
 m=50,\quad n_i\in\{15,20,25\},\quad \beta=(1,2,-1,0.5),\quad
@@ -1483,140 +1483,140 @@ G_0=\begin{pmatrix}4&1\\1&2\end{pmatrix},\quad \sigma^2=1.
 ```
 
 <p align="center">
- <img src="code/linear-mixed-model/figures/41_lmm_em_500sim_iter.png" width="45%" alt="General LMM: EM 500-simulation averaged iteration path">
- <img src="code/linear-mixed-model/figures/42_lmm_mcem_M200_500sim_iter.png" width="45%" alt="General LMM: MCEM(M=200) 500-simulation averaged iteration path">
+ <img src="code/linear-mixed-model/figures/41_lmm_em_500sim_iter.png" width="45%" alt="一般混合线性模型 EM 500 次模拟平均迭代过程">
+ <img src="code/linear-mixed-model/figures/42_lmm_mcem_M200_500sim_iter.png" width="45%" alt="一般混合线性模型 MCEM(M=200) 500 次模拟平均迭代过程">
 </p>
 
-> Figures show the **500-simulation averaged** iteration trajectory — averaging over independent datasets cancels single-dataset sampling noise, so the curves track the true values and the table means (a single-run trajectory would not). Generated by `code/linear-mixed-model/driver_compare500.R` (`set.seed(2025)`), saved in `code/linear-mixed-model/figures/`. The table reports EM and MCEM at Monte Carlo sample sizes $`M\in\{20,50,100,200\}`$, all averaged over 500 simulations.
+> 图为 **500 次模拟平均**的迭代轨迹——对独立数据集取平均会抵消单数据集的抽样噪声，故曲线收敛到真值、与下表均值一致（单次轨迹则不会）。由 `code/linear-mixed-model/driver_compare500.R`（`set.seed(2025)`）生成，保存于 `code/linear-mixed-model/figures/`。下表给出 EM 与 MCEM 在 Monte Carlo 采样数 $`M\in\{20,50,100,200\}`$ 下、均按 500 次模拟取平均的结果。
 
-| Metric | EM | MCEM $`M=20`$ | MCEM $`M=50`$ | MCEM $`M=100`$ | MCEM $`M=200`$ |
+| 指标 | EM | MCEM $`M=20`$ | MCEM $`M=50`$ | MCEM $`M=100`$ | MCEM $`M=200`$ |
 |---|---:|---:|---:|---:|---:|
 | $`\hat\beta`$ | (1.000, 1.984, −1.000, 0.504) | (1.000, 1.984, −1.000, 0.504) | (1.000, 1.984, −1.000, 0.504) | (1.000, 1.984, −1.000, 0.504) | (1.000, 1.984, −1.000, 0.504) |
-| Diagonal of $`\hat G_0`$ | (3.921, 1.953) | (3.920, 1.953) | (3.921, 1.953) | (3.921, 1.952) | (3.921, 1.952) |
+| $`\hat G_0`$ 对角 | (3.921, 1.953) | (3.920, 1.953) | (3.921, 1.953) | (3.921, 1.952) | (3.921, 1.952) |
 | $`\hat\sigma^2`$ | 0.9950 | 0.9947 | 0.9951 | 0.9950 | 0.9950 |
-| Total MSE | 0.13292 | 0.13329 | 0.13214 | 0.13369 | 0.13305 |
-| Mean iterations | 8.34 | 50.00 (limit) | 50.00 (limit) | 50.00 (limit) | 50.00 (limit) |
-| Total time (s) † | 30.6 | 441 | 824 | 1525 | 2839 |
+| 总 MSE | 0.13292 | 0.13329 | 0.13214 | 0.13369 | 0.13305 |
+| 平均迭代次数 | 8.34 | 50.00（达上限）| 50.00（达上限）| 50.00（达上限）| 50.00（达上限）|
+| 总耗时（秒）† | 30.6 | 441 | 824 | 1525 | 2839 |
 
-> † All five configurations are run on the **same** 500 datasets (a paired comparison), so the only thing varying across the MCEM columns is the Monte Carlo sample size $`M`$. Wall times are from sequential execution (per-config compute is independent of the data).
+> † 五个配置都在**同一批** 500 个数据集上运行（配对对比），故 MCEM 各列之间唯一变化的就是 Monte Carlo 采样数 $`M`$。耗时为顺序执行的单配置墙钟时间（每个配置的计算量与所用数据无关）。
 
-Key findings:
+主要结论：
 
-- On the same datasets, EM and MCEM at every $`M`$ recover the true parameters and give essentially identical estimates: $`\hat\beta`$ is **identical** (it is the closed-form GLS solution, unaffected by the Monte Carlo E-step), and $`\hat G_0`$ / $`\hat\sigma^2`$ differ only by tiny Monte Carlo noise. MCEM reproduces EM's estimate even at $`M=20`$; larger $`M`$ merely smooths the iteration trajectory further (the $`M=200`$ path is the cleanest).
-- The slight underestimation of the diagonal of $`\hat G_0`$ ($`\approx(3.92, 1.95)`$ vs. $`(4, 2)`$) is the intrinsic ML downward bias in variance components (which diminishes as the number of groups $`m`$ grows; REML in §6.3.1 removes it); the off-diagonal, noisy on a single dataset, recovers to $`\approx1`$ when averaged over 500 runs.
-- MCEM hits the 50-iteration limit and its cost scales roughly linearly with $`M`$ — from $`\approx14\times`$ ($`M=20`$) to $`\approx93\times`$ ($`M=200`$) the EM wall time — with **no accuracy gain** here, because the E-step already has a closed form. MCEM pays off only when the E-step is intractable.
+- 在同一批数据上，EM 与各 $`M`$ 的 MCEM 都准确恢复真值，且估计几乎完全一致：$`\hat\beta`$ **完全相同**（它是闭式 GLS 解，不受 Monte Carlo E 步影响），$`\hat G_0`$、$`\hat\sigma^2`$ 仅相差极小的 Monte Carlo 噪声。即便 $`M=20`$，MCEM 也已复现 EM 的估计；更大的 $`M`$ 只是把迭代轨迹进一步平滑（$`M=200`$ 的轨迹最干净）。
+- $`\hat G_0`$ 对角略偏小（$`\approx(3.92, 1.95)`$ vs $`(4, 2)`$）是方差分量极大似然的固有向下偏（随组数 $`m`$ 增大缓解；§6.3.1 的 REML 可消除）；非对角项在单个数据集上有噪声，500 次平均后准确恢复 $`\approx1`$。
+- MCEM 迭代达 50 次上限，耗时随 $`M`$ 近似线性增长——从 $`\approx14\times`$（$`M=20`$）到 $`\approx93\times`$（$`M=200`$）的 EM 墙钟时间——在此**无精度收益**，因为 E 步本就有闭式解。MCEM 仅在 E 步不可解析时才划算。
 
-#### 6.3.1 Comparison with Library Results
+#### 6.3.1 与调库结果的对比与评估
 
-`code/linear-mixed-model/driver_library_compare.R` (`set.seed(2025)`, $`m=50`$, 200 simulations) benchmarks the hand-coded EM/MCEM against two standard libraries, `lme4::lmer` and `nlme::lme`, under both ML and REML. Each row is aligned to the matching objective: hand-coded ML ↔ library ML, hand-coded REML ↔ library REML.
+`code/linear-mixed-model/driver_library_compare.R`（`set.seed(2025)`，$`m=50`$、200 次模拟）把手写 EM/MCEM 与两大标准库 `lme4::lmer`、`nlme::lme` 在 ML 与 REML 双口径下对照。每行均对齐相同目标：手写 ML ↔ 库 ML，手写 REML ↔ 库 REML。
 
-**Single-dataset digit-by-digit comparison**: the hand-coded EM agrees digit-for-digit with `lme4` and `nlme` under the matching criterion — ML differences are around $`10^{-7}`$ in variance components, and REML differences are the same order after adding the fixed-effect degrees-of-freedom corrections.
+**单数据集逐位对照**：手写 EM 与 `lme4`、`nlme` 在相同口径下逐位一致——ML 的方差分量差异约 $`10^{-7}`$ 量级；补入固定效应自由度校正后，REML 也达到同一量级。
 
-**Mean comparison over 200 simulations** (true values $`\beta=(1,2,-1,0.5)`$, $`G_0`$ diagonal $`(4,2)`$, $`\sigma^2=1`$):
+**200 次模拟均值对比**（真值 $`\beta=(1,2,-1,0.5)`$、$`G_0`$ 对角 $`(4,2)`$、$`\sigma^2=1`$）：
 
-| Method | Mean $`\hat\beta`$ | Diagonal of $`\hat G_0`$ | $`\hat\sigma^2`$ | Mean per-run MSE † |
+| 方法 | $`\hat\beta`$ 均值 | $`\hat G_0`$ 对角 | $`\hat\sigma^2`$ | 平均单次 MSE † |
 |---|---|---|---:|---:|
-| Hand-coded EM | (0.990, 1.989, −0.996, 0.504) | (3.987, 1.952) | 0.9976 | 1.2854 |
+| 手写 EM | (0.990, 1.989, −0.996, 0.504) | (3.987, 1.952) | 0.9976 | 1.2854 |
 | `lme4`(ML) | (0.990, 1.989, −0.996, 0.504) | (3.987, 1.952) | 0.9976 | 1.2854 |
 
-> † Analogous in spirit to §6.1.1, but the **convention differs**: here "mean per-run MSE" is the mean over simulations of the error *norm* $`\lVert\hat\beta-\beta\rVert_2+\lVert\hat G_0-G_0\rVert_F+|\hat\sigma^2-\sigma^2|`$ (the `get_mse` convention for variance-component models), whereas §6.1.1 sums *squared* errors — so the two tables' per-run columns are not numerically comparable. It measures single-run estimation accuracy; the "total MSE" (0.13292) in the main table of §6.3 is instead computed by averaging the 500 estimates first and then taking the deviation norm, measuring estimator bias — the two cannot be compared directly.
+> † 与 §6.1.1 思路类似，但**口径不同**：此处"平均单次 MSE"为各次模拟误差*范数* $`\lVert\hat\beta-\beta\rVert_2+\lVert\hat G_0-G_0\rVert_F+|\hat\sigma^2-\sigma^2|`$ 的均值（方差分量模型的 `get_mse` 口径），而 §6.1.1 累加的是*平方*误差——故两表的单次列数值不可直接比较。它衡量单次估计精度；§6.3 主表的"总 MSE"（0.13292）则是对 500 次估计先平均、再取偏差范数，度量的是估计量偏差——二者不可直接比较。
 
-The hand-coded EM has a mean $`\max`$-diff of $`4.8\times10^{-7}`$ with `lme4`(ML) over 200 simulations and agrees equally digit-for-digit with `nlme::lme`, **confirming that the hand-coded EM is the standard LMM maximum-likelihood estimator**. If ML variance components are not satisfactory, the same driver now reports REML side-by-side; the REML path uses `options(lmm_reml=TRUE)` and matches `lme4(REML=TRUE)` / `nlme(method="REML")`. The $`\beta`$ in MCEM is computed by the closed-form GLS (so it is identical across $`M`$, as the §6.3 table shows); only the variance components carry Monte Carlo noise, which shrinks with $`M`$ while remaining close to the true values.
+手写 EM 与 `lme4`(ML) 在 200 次模拟上平均 $`\max`$-diff $`=4.8\times10^{-7}`$，与 `nlme::lme` 同样逐位一致，**确证手写 EM 即标准 LMM 的极大似然估计**。若 ML 方差分量不理想，同一驱动脚本现已并列报告 REML；REML 路径使用 `options(lmm_reml=TRUE)`，并与 `lme4(REML=TRUE)` / `nlme(method="REML")` 对齐。MCEM 的 $`\beta`$ 由闭式 GLS 给出（故各 $`M`$ 下完全相同，见 §6.3 主表）；仅方差分量含蒙特卡洛噪声，且随 $`M`$ 增大而减小，但始终接近真值。
 
-## 7. Empirical Analysis (Real Deep-Learning Data)
+## 7. 实证分析（深度学习真实数据）
 
-This corresponds to Chapter 5 of the thesis. Two pipelines **directly reuse** the EM/MCEM implementations from Chapters 3 and 4 on real data (only the data loading is replaced); complete reproduction instructions are in `code/empirical_README.md`. The random seed throughout is `20250529`.
+对应论文第 5 章。两条流水线把第 3、4 章的 EM/MCEM 实现**直接复用**到真实数据（仅替换数据），完整复现说明见 `code/empirical_README.md`。随机种子统一 `20250529`。
 
-### 7.1 Student's t Regression — UTKFace Facial Age
+### 7.1 Student's t 回归 — UTKFace 人脸年龄
 
-- **Data and task**: 8000 faces from Hugging Face `py97/UTKFace-Cropped`; frozen ResNet-50 embeddings (2048-dim) → PCA to 30 dimensions; regression target is age. $`n=8000`$, 31 predictors (including intercept).
-- **Method**: The degrees of freedom $`\nu`$ is unknown; profile marginal likelihood over the grid $`\{1, 1.5, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30, 50\}`$ selects $`\nu^*`$ (evaluated at the EM/MAP fit, whose variance differs from pure MLE only by the $`n/(n+2)`$ factor); EM and MCEM ($`M=20/50/200`$) are run at $`\nu^*`$; `optim` directly maximizing the marginal t likelihood and `MASS::rlm` provide two independent cross-checks. To support $`n=8000`$, the implementation uses row-scaled $`wX`$ instead of $`\mathrm{diag}(w)`$ (mathematically equivalent to the weighted least squares in §3.5).
-- **Key results**: $`\nu^*=6`$; marginal t log-likelihood $`-32029.9`$, an **improvement of 151.0** over the normal baseline (OLS, $`-32180.9`$); maximum fixed-effect coefficient difference between EM(MAP) and `optim` marginal MLE is $`0.00019`$; correlation of EM and `rlm` coefficients $`\approx1.0`$; E-step weights $`\gamma_i`$ decrease monotonically with absolute residual — among the 10% most strongly down-weighted observations, ages $`\ge 60`$ account for $`59.5\%`$ (vs. $`11.3\%`$ in the full sample), meaning sparse elderly observations are automatically down-weighted.
+- **数据与任务**：Hugging Face `py97/UTKFace-Cropped` 取 8000 张人脸，ResNet-50 冻结嵌入（2048 维）→ PCA 降至 30 维，回归年龄。$`n=8000`$，预测变量 31（含截距）。
+- **方法**：自由度 $`\nu`$ 未知，在网格 $`\{1, 1.5, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30, 50\}`$ 上用 profile 边际似然选 $`\nu^*`$（在 EM/MAP 拟合处评价，其方差与纯 MLE 仅差 $`n/(n+2)`$ 因子）；$`\nu^*`$ 下跑 EM 与 MCEM（$`M=20/50/200`$）；并以 `optim` 直接极大化边际 t 似然、`MASS::rlm` 双重独立验证。为支持 $`n=8000`$，实现用按行缩放 $`wX`$ 替代 $`\mathrm{diag}(w)`$（与 §3.5 加权最小二乘数学等价）。
+- **关键结果**：$`\nu^*=6`$；t 边际对数似然 $`-32029.9`$，较正态基线（OLS，$`-32180.9`$）**提升 151.0**；EM(MAP) 与 `optim` 边际 MLE 固定效应系数最大差 $`0.00019`$，EM 与 `rlm` 系数相关 $`\approx1.0`$；E 步权重 $`\gamma_i`$ 随残差绝对值单调下降，被最强下调的 10% 样本中年龄 $`\ge 60`$ 占 $`59.5\%`$（全样本 $`11.3\%`$），即高龄稀疏样本被自动降权。
 
-| Coefficient | OLS | EM(t) | MCEM $`M=20`$ | MCEM $`M=200`$ | optim |
+| 系数 | OLS | EM(t) | MCEM $`M=20`$ | MCEM $`M=200`$ | optim |
 |---|---:|---:|---:|---:|---:|
-| Intercept | 33.276 | 32.410 | 32.426 | 32.402 | 32.410 |
+| 截距 | 33.276 | 32.410 | 32.426 | 32.402 | 32.410 |
 | PC1 | 2.383 | 2.444 | 2.468 | 2.445 | 2.444 |
 | PC2 | 10.648 | 10.687 | 10.658 | 10.685 | 10.687 |
 
-Figures generated by `code/empirical-t-utkface/code/03_replot.R`, saved in `code/empirical-t-utkface/output/`:
+图由 `code/empirical-t-utkface/code/03_replot.R` 生成，保存于 `code/empirical-t-utkface/output/`：
 
 <p align="center">
- <img src="code/empirical-t-utkface/output/71_qq_normal.png" width="45%" alt="OLS residual normal QQ plot (tail deviations indicate heavy tails)">
- <img src="code/empirical-t-utkface/output/72_profile_nu.png" width="45%" alt="Profile marginal likelihood for degrees of freedom nu">
+ <img src="code/empirical-t-utkface/output/71_qq_normal.png" width="45%" alt="OLS 残差正态 QQ 图（端部偏离示重尾）">
+ <img src="code/empirical-t-utkface/output/72_profile_nu.png" width="45%" alt="自由度 ν 的 profile 边际似然">
 </p>
 <p align="center">
- <img src="code/empirical-t-utkface/output/73_weights.png" width="45%" alt="E-step weights decrease monotonically with residual">
- <img src="code/empirical-t-utkface/output/74_qq_t.png" width="45%" alt="t(nu*) quantile-quantile plot (heavy tails absorbed by model)">
+ <img src="code/empirical-t-utkface/output/73_weights.png" width="45%" alt="E 步权重随残差单调下调">
+ <img src="code/empirical-t-utkface/output/74_qq_t.png" width="45%" alt="t(ν*) 分位-分位图（重尾被模型吸收）">
 </p>
 
-### 7.2 Two-Level Linear Model — CIFAR-10H Human Reaction Times
+### 7.2 两层线性模型 — CIFAR-10H 人类反应时
 
-- **Data and task**: CIFAR-10H annotator reaction times for CIFAR-10 test images. Level-1: $`\log RT_{ij}=b_{0j}+b_{1j}\,\mathrm{diff}_{ij}+b_{2j}\,\mathrm{correct}_{ij}+b_{3j}\,\mathrm{trial}_{ij}+\varepsilon_{ij}`$ (covariates: difficulty, correctness, trial index; difficulty and trial are z-standardized to mean 0, SD 1 before fitting, so $`b_{1j}`$ and $`b_{3j}`$ are per-standard-deviation effects, while correctness is binary); level-2: $`\beta_j \sim N(\gamma, D)`$ (annotator random coefficients, $`q=0`$, $`W_j=I_4`$). After removing annotators with rank-deficient within-group design matrices (0% or 100% correct): $`J=299`$, $`N=59699`$.
-- **Method**: **Direct reuse** of the Chapter 4 two-level model EM/MCEM (only the `get_X_j/y_j/W_j` accessors are overridden to read data by group, avoiding a massive block-diagonal matrix); EM and MCEM ($`M=20/50/200`$) are run and compared against `lme4` (ML) as gold standard.
-- **Key results**: Fixed effects $`\gamma`$ = (intercept 7.648, difficulty 0.130, correct −0.257, trial −0.033); $`\sigma^2=0.1191`$ matches `lme4` exactly; marginal log-likelihood $`-22423.06`$ agrees with `lme4` **digit-for-digit** (difference $`\lt 0.1`$); random-effects SDs are $`(0.327, 0.050, 0.220, 0.038)`$; intercept ICC $`=0.473`$ (proportion of between-annotator baseline speed variation); MCEM (all $`M`$) agrees with EM to approximately 4 decimal places; EM marginal log-likelihood is monotonically increasing on real data.
+- **数据与任务**：CIFAR-10H 标注者对 CIFAR-10 测试图的反应时。一级 $`\log RT_{ij}=b_{0j}+b_{1j}\,\mathrm{diff}_{ij}+b_{2j}\,\mathrm{correct}_{ij}+b_{3j}\,\mathrm{trial}_{ij}+\varepsilon_{ij}`$（协变量分别为难度、正确、试次；其中难度与试次在拟合前已 z 标准化为均值 0、标准差 1，故 $`b_{1j}`$、$`b_{3j}`$ 为每标准差效应，正确为二值），二级 $`\beta_j \sim N(\gamma, D)`$（标注者随机系数，$`q=0`$、$`W_j=I_4`$）。剔除组内设计阵秩亏（正确率 0 或 100%）的标注者后 $`J=299`$，$`N=59699`$。
+- **方法**：**直接复用**第 4 章两层模型 EM/MCEM（仅覆盖 `get_X_j/y_j/W_j` 访问器以按组读数，避免巨型块对角阵）；跑 EM 与 MCEM（$`M=20/50/200`$）；以 `lme4`（ML）金标准对照。
+- **关键结果**：固定效应 $`\gamma`$ =（截距 7.648、难度 0.130、正确 −0.257、试次 −0.033）；$`\sigma^2=0.1191`$ 与 `lme4` 完全一致，边际对数似然 $`-22423.06`$ 与 `lme4` **逐位吻合**（差 $`\lt 0.1`$）；随机效应 SD 为 $`(0.327, 0.050, 0.220, 0.038)`$；截距 ICC $`=0.473`$（标注者间 baseline 速度差异占比）；MCEM（各 $`M`$）与 EM 吻合到约 4 位小数；EM 边际对数似然在真实数据上单调上升。
 
-| Fixed effect | EM | MCEM $`M=20`$ | MCEM $`M=200`$ | lme4 |
+| 固定效应 | EM | MCEM $`M=20`$ | MCEM $`M=200`$ | lme4 |
 |---|---:|---:|---:|---:|
-| Intercept | 7.6477 | 7.6475 | 7.6478 | 7.6477 |
-| Difficulty | 0.1299 | 0.1299 | 0.1299 | 0.1299 |
-| Correct | −0.2572 | −0.2569 | −0.2572 | −0.2572 |
-| Trial | −0.0334 | −0.0334 | −0.0334 | −0.0334 |
+| 截距 | 7.6477 | 7.6475 | 7.6478 | 7.6477 |
+| 难度 | 0.1299 | 0.1299 | 0.1299 | 0.1299 |
+| 正确 | −0.2572 | −0.2569 | −0.2572 | −0.2572 |
+| 试次 | −0.0334 | −0.0334 | −0.0334 | −0.0334 |
 
-Figures generated by `code/empirical-2level-cifar10h/code/03_replot.R`, saved in `code/empirical-2level-cifar10h/output/`:
+图由 `code/empirical-2level-cifar10h/code/03_replot.R` 生成，保存于 `code/empirical-2level-cifar10h/output/`：
 
 <p align="center">
- <img src="code/empirical-2level-cifar10h/output/61_loglik_monotone.png" width="45%" alt="EM marginal log-likelihood monotonically increasing on real data">
- <img src="code/empirical-2level-cifar10h/output/62_caterpillar_intercept.png" width="45%" alt="Annotator random intercept caterpillar plot">
+ <img src="code/empirical-2level-cifar10h/output/61_loglik_monotone.png" width="45%" alt="EM 边际对数似然在真实数据上单调上升">
+ <img src="code/empirical-2level-cifar10h/output/62_caterpillar_intercept.png" width="45%" alt="标注者随机截距 caterpillar 图">
 </p>
 <p align="center">
- <img src="code/empirical-2level-cifar10h/output/63_gamma_convergence.png" width="45%" alt="EM convergence trajectory for fixed effects gamma">
+ <img src="code/empirical-2level-cifar10h/output/63_gamma_convergence.png" width="45%" alt="固定效应 γ 的 EM 收敛轨迹">
 </p>
 
-### 7.3 Empirical Summary
+### 7.3 实证总结
 
-The three patterns observed in simulation — monotonicity of the EM observed-data log-likelihood, the MCEM trade-off between sample size and accuracy/cost, and the consistency of EM and MCEM with sufficient sampling — all hold on the two real deep-learning datasets; and t regression EM (vs. `optim`/`rlm`) and two-level model EM (vs. `lme4`) each agree digit-for-digit with independent gold standards, validating the correctness of the implementations.
+模拟中观察到的三条规律——EM 观测数据对数似然的单调性、MCEM 采样量与精度/成本的权衡、EM 与 MCEM 在足够采样下的一致性——在两个真实深度学习数据集上均成立；且 t 回归 EM（对 `optim`/`rlm`）与两层模型 EM（对 `lme4`）分别与独立金标准逐位吻合，验证了实现的正确性。
 
-**Complete closed-loop library cross-validation.** This repository includes library cross-checks at both the **simulation** and **empirical** ends: simulation side in §6.1.1 (`optim`/`hett::tlm`/`MASS::rlm`), §6.2.1 (`lme4` under ML and REML), §6.3.1 (`lme4`/`nlme` under ML and REML), each reproduced by the corresponding model's `driver_library_compare.R`; empirical side in §7.1 (`optim`/`rlm`) and §7.2 (`lme4`). The conclusions at both ends are consistent: all three hand-coded EM/MCEM implementations agree with ecosystem gold standards to machine precision; any discrepancies arise solely from deliberate prior/estimand choices (the $`n+2`$ divisor in the t regression MAP, and the ML vs. REML variance components in mixed models), and each of those differences can be explained by "switching to the corresponding library's estimand and reproducing digit-for-digit."
+**调库对照的完整闭环。** 本仓库在**模拟**与**实证**两端都引入了现成库做交叉验证：模拟端见 §6.1.1（`optim`/`hett::tlm`/`MASS::rlm`）、§6.2.1（`lme4` 的 ML 与 REML 双口径）、§6.3.1（`lme4`/`nlme` 的 ML 与 REML 双口径），由各模型 `driver_library_compare.R` 复现；实证端见 §7.1（`optim`/`rlm`）、§7.2（`lme4`）。两端结论一致：三套手写 EM/MCEM 与生态金标准在机器精度内吻合，差异仅来自刻意的先验/口径选择（t 回归 MAP 的 $`n+2`$、混合模型 ML 与 REML 的方差分量），且这些差异本身可由"切换到对应库口径后逐位复现"得到解释。
 
-## 8. Repository Structure
+## 8. 仓库结构
 
 ```text
 .
-├── README.md                     # This document: EM/MCEM derivations + model applications + empirical results
-├── Algorithms.tex                  # LaTeX thesis source; Algorithms.pdf is a committed build artifact (regenerated via xelatex)
-├── LICENSE                         # MIT License (Copyright (c) 2026 Li Xiuyin)
+├── README.md                     # 本文档：EM/MCEM 推导 + 模型应用 + 实证结果
+├── Algorithms.tex                  # 论文 LaTeX 源；Algorithms.pdf 为已纳入版本控制的编译产物（由 xelatex 重新生成）
+├── LICENSE                         # MIT 许可证（Copyright (c) 2026 Li Xiuyin）
 └── code/
-    ├── README.md                 # Overview of all three model codebases and shared conventions
-    ├── docs/                      # code_review_report.md — adversarial code review (27 findings / 21 confirmed)
-    ├── empirical_README.md       # Reproduction instructions for the two empirical pipelines
-    ├── general/                  # make_em_concept.R — EM lower-bound illustration (Fig. 2.1)
-    ├── t-regression/             # Chapter 3: utils.R / em.R / mcem.R / driver_*.R / README.md
-    ├── two-level-model/          # Chapter 4: same + figures/
-    ├── linear-mixed-model/       # Chapter 4 extension: same + lmm_derivation.md
-    ├── empirical-t-utkface/      # code/ data/ output/ (UTKFace t regression)
-    └── empirical-2level-cifar10h/ # code/ data/ output/ (CIFAR-10H two-level model)
+    ├── README.md                 # 三模型代码总览与公共约定
+    ├── docs/                      # code_review_report.md —— 对抗式代码复核（27 条发现 / 21 条确认）
+    ├── empirical_README.md       # 两条实证流水线复现说明
+    ├── general/                  # make_em_concept.R —— EM 下界示意图（图 2.1）
+    ├── t-regression/             # 第 3 章：utils.R / em.R / mcem.R / driver_*.R / README.md
+    ├── two-level-model/          # 第 4 章：同上 + figures/
+    ├── linear-mixed-model/       # 第 4 章扩展：同上 + lmm_derivation.md
+    ├── empirical-t-utkface/      # code/ data/ output/（UTKFace t 回归）
+    └── empirical-2level-cifar10h/ # code/ data/ output/（CIFAR-10H 两层模型）
 ```
 
-Code and documentation entry points:
+代码与文档入口：
 
-| Path | Contents |
+| 路径 | 内容 |
 |---|---|
-| `code/README.md` | Overview of all three model codebases, shared conventions, how to run, summary of findings |
-| `code/t-regression/` | t regression EM/MCEM simulation (`README.md` contains iteration formulas and validation conclusions) |
-| `code/two-level-model/` | Two-level linear model EM/MCEM simulation (`README.md`) |
-| `code/linear-mixed-model/` | General LMM EM/MCEM simulation; `lmm_derivation.md` contains the complete derivation |
-| `code/empirical-t-utkface/` | UTKFace deep-embedding t regression empirical analysis |
-| `code/empirical-2level-cifar10h/` | CIFAR-10H reaction time two-level model empirical analysis |
-| `code/docs/code_review_report.md` | Adversarial code review report for all three codebases |
+| `code/README.md` | 三模型代码总览、公共约定、运行方式、结论速览 |
+| `code/t-regression/` | t 回归 EM/MCEM 模拟（`README.md` 含迭代公式与验证结论）|
+| `code/two-level-model/` | 两层线性模型 EM/MCEM 模拟（`README.md`）|
+| `code/linear-mixed-model/` | 一般 LMM EM/MCEM 模拟；`lmm_derivation.md` 为完整推导 |
+| `code/empirical-t-utkface/` | UTKFace 深度嵌入 t 回归实证 |
+| `code/empirical-2level-cifar10h/` | CIFAR-10H 反应时两层模型实证 |
+| `code/docs/code_review_report.md` | 三套代码的对抗式复核报告 |
 
-## References
+## 参考文献
 
 1. Dempster, A. P., Laird, N. M., and Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm.
 2. Wu, C. F. J. (1983). On the convergence properties of the EM algorithm.
 3. Wei, G. C. G., and Tanner, M. A. (1990). A Monte Carlo implementation of the EM algorithm and the poor man's data augmentation algorithms.
 4. Liu, C., and Rubin, D. B. (1995). ML estimation of the t distribution using EM and its extensions.
 
-## License
+## 许可证
 
-Released under the MIT License — see [LICENSE](LICENSE) (Copyright (c) 2026 Li Xiuyin).
+基于 MIT 许可证发布 —— 参见 [LICENSE](LICENSE)（Copyright (c) 2026 Li Xiuyin）。

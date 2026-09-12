@@ -1,6 +1,6 @@
 # EM 与 MCEM 算法：完整推导、模型应用与实证结果
 
-> [English](README.md) | **中文**
+> [English](README.en.md) | **中文**
 
 本仓库整理本科毕业论文《EM 算法、MCEM 算法的原理及其在回归模型参数估计中的应用》的核心内容，给出 EM、MCEM、Student's t 回归和两层线性模型的完整推导过程，并附实现代码与实证结果。
 
